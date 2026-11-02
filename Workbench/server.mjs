@@ -43,13 +43,14 @@ function loadConfig() {
   catch (e) { return null; }
 }
 
-// Tripo（国外平台 tripo3d.ai）请求走系统代理（浏览器可访问、Node 直连超时的网络环境）；comfly 保持直连
+// comfly 与 Tripo 统一走系统代理（浏览器可访问、Node 直连超时的网络环境）
 function detectSystemProxy() {
   try {
+    const REGEXE = process.env.SystemRoot ? join(process.env.SystemRoot, "System32", "reg.exe") : "reg";
     const base = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
-    const en = execFileSync("reg", ["query", base, "/v", "ProxyEnable"], { encoding: "utf8", windowsHide: true });
+    const en = execFileSync(REGEXE, ["query", base, "/v", "ProxyEnable"], { encoding: "utf8", windowsHide: true });
     if (!/0x1/.test(en)) return "";
-    const srv = execFileSync("reg", ["query", base, "/v", "ProxyServer"], { encoding: "utf8", windowsHide: true });
+    const srv = execFileSync(REGEXE, ["query", base, "/v", "ProxyServer"], { encoding: "utf8", windowsHide: true });
     const m = srv.match(/[^\s]+\s+REG_SZ\s+(\S+)/);
     if (!m) return "";
     const v = m[1];
@@ -365,8 +366,13 @@ async function handleApi(req, res, url) {
     const prompt = String(body.prompt || "").trim() || cfg.prompts?.refineTemplate || "";
     if (!prompt) { sendJson(res, 400, { ok: false, error: "缺少细化提示词" }); return true; }
     try {
+      // 源图优先取当前主细化图 refined.png（重新生成=在当前图上继续细化），无则用前端传入源图
+      const dir0 = join(MODEL_ROOT, name);
+      const current = join(dir0, "refined.png");
       const tmpImg = join(TMP_DIR, "regen_src_" + name + "_" + Date.now() + ".png");
-      saveBase64Image(imageData, tmpImg);
+      if (existsSync(current)) { mkdirSync(TMP_DIR, { recursive: true }); writeFileSync(tmpImg, readFileSync(current)); }
+      else if (imageData) saveBase64Image(imageData, tmpImg);
+      else throw new Error("缺少源图（无当前细化图且未传源图）");
       const url = await comflyEdits(cfg, tmpImg, prompt);
       const ts = Date.now();
       const dest = join(MODEL_ROOT, name, "refined_" + ts + ".png");
@@ -391,7 +397,7 @@ async function handleApi(req, res, url) {
         const stats = files.map((f) => { const p = join(dir, f); return { f, p, m: statSync(p).mtimeMs }; });
         stats.sort((a, b) => b.m - a.m);
         for (const s of stats) {
-          list.push({ path: s.p, name: s.f, primary: /^refined\.png$/i.test(s.f), localUrl: "/assets/Models/" + name + "/" + s.f });
+          list.push({ path: s.p, name: s.f, primary: /^refined\.png$/i.test(s.f), localUrl: "/assets/Models/" + name + "/" + s.f, mtimeMs: Math.round(s.m) });
         }
       }
       sendJson(res, 200, { ok: true, list });
@@ -521,7 +527,8 @@ function saveBase64Image(dataUrl, filePath) {
 }
 
 async function downloadUrlToFile(url, filePath, proxyUrl) {
-  const r = proxyUrl ? await proxyFetch(url, {}) : await fetch(url, { timeout: 120000 });
+  const useProxy = proxyUrl || tripoProxyUrl;
+  const r = useProxy ? await proxyFetch(url, {}) : await fetch(url, { timeout: 120000 });
   if (!r.ok) throw new Error("下载失败 HTTP " + r.status + " " + url);
   const buf = Buffer.from(await r.arrayBuffer());
   mkdirSync(dirname(filePath), { recursive: true });
@@ -553,7 +560,7 @@ async function comflySplit(cfg, systemPrompt, imageInput) {
     ],
     max_tokens: 3000,
   };
-  const r = await fetch(cfg.comfly.baseUrl + "/chat/completions", {
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
     body: JSON.stringify(body),
@@ -594,7 +601,7 @@ async function comflyLocateBbox(cfg, imageInput, objectName) {
     ],
     max_tokens: 300,
   };
-  const r = await fetch(cfg.comfly.baseUrl + "/chat/completions", {
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
     body: JSON.stringify(body),
@@ -620,17 +627,22 @@ async function comflyLocateBbox(cfg, imageInput, objectName) {
 }
 
 async function comflyEdits(cfg, imagePath, prompt) {
-  const form = new FormData();
-  form.append("model", cfg.comfly.imageModel || "gpt-image-2");
-  form.append("prompt", prompt);
-  form.append("size", cfg.comfly.imageSize || "1024x1024");
-  form.append("n", "1");
+  // 走系统代理（proxyFetch 不支持原生 FormData，手工构造 multipart Buffer）
+  const boundary = "----WBFormBoundary" + Date.now();
   const buf = readFileSync(imagePath);
-  form.append("image", new Blob([buf], { type: "image/png" }), "ref.png");
-  const r = await fetch(cfg.comfly.baseUrl + "/images/edits", {
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${cfg.comfly.imageModel || "gpt-image-2"}\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${prompt}\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${cfg.comfly.imageSize || "1024x1024"}\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.png"\r\nContent-Type: image/png\r\n\r\n`, "utf8"),
+    buf,
+    Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
+  ]);
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/images/edits", {
     method: "POST",
-    headers: { Authorization: "Bearer " + cfg.comfly.apiKey },
-    body: form,
+    headers: { Authorization: "Bearer " + cfg.comfly.apiKey, "Content-Type": "multipart/form-data; boundary=" + boundary },
+    body,
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error("comfly 细化失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));

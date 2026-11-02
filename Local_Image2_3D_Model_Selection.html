@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE 工作台 · 本地图生 3D 模型选型调研报告</title>
+<style>
+  :root{
+    --bg:#f6f8fa; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#1d4ed8; --accent-soft:#eff6ff;
+    --green:#047857; --green-soft:#ecfdf5; --red:#b91c1c; --red-soft:#fef2f2;
+    --amber:#b45309; --amber-soft:#fffbeb; --violet:#6d28d9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;line-height:1.65;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 60px}
+  header.hero{background:linear-gradient(135deg,#0f172a,#1e3a8a);color:#fff;border-radius:14px;padding:30px 32px;margin-bottom:26px}
+  header.hero h1{margin:0 0 8px;font-size:26px}
+  header.hero .meta{color:#cbd5e1;font-size:13.5px}
+  .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12.5px;font-weight:600;margin:0 4px 4px 0}
+  .b-green{background:var(--green-soft);color:var(--green)}
+  .b-red{background:var(--red-soft);color:var(--red)}
+  .b-amber{background:var(--amber-soft);color:var(--amber)}
+  .b-blue{background:var(--accent-soft);color:var(--accent)}
+  .b-violet{background:#f5f3ff;color:var(--violet)}
+  .b-gray{background:#f3f4f6;color:#374151}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 26px;margin-bottom:20px}
+  h2{font-size:19px;margin:0 0 14px;border-left:4px solid var(--accent);padding-left:10px}
+  h3{font-size:16px;margin:20px 0 8px}
+  h4{font-size:14.5px;margin:14px 0 6px;color:var(--accent)}
+  p{margin:6px 0}
+  ul,ol{margin:6px 0;padding-left:22px}
+  li{margin:4px 0}
+  .note{background:var(--amber-soft);border:1px solid #fde68a;border-radius:8px;padding:12px 14px;font-size:14px;margin:10px 0}
+  .warn{background:var(--red-soft);border:1px solid #fecaca;border-radius:8px;padding:12px 14px;font-size:14px;margin:10px 0}
+  .ok{background:var(--green-soft);border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;font-size:14px;margin:10px 0}
+  .tbl-scroll{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:1060px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#f3f5f9;font-weight:600;white-space:nowrap}
+  td.hl{font-weight:600}
+  .tier1 td{background:#f0fdf4}
+  .tier2 td{background:#eff6ff}
+  .tier3 td{background:#fefce8}
+  .reject td{background:#f8f8f8;color:#6b7280}
+  .tag{font-size:12px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap}
+  .t-ok{background:var(--green-soft);color:var(--green)}
+  .t-warn{background:var(--amber-soft);color:var(--amber)}
+  .t-bad{background:var(--red-soft);color:var(--red)}
+  .rec{border:2px solid var(--accent);border-radius:12px;padding:18px 20px;margin:14px 0;background:#fbfdff}
+  .rec.primary{border-color:var(--green);background:#fbfefc}
+  code{background:#f1f5f9;border-radius:4px;padding:1px 6px;font-size:13px;font-family:Consolas,monospace}
+  a{color:var(--accent);text-decoration:none;word-break:break-all}
+  a:hover{text-decoration:underline}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0}
+  .kpi div{flex:1;min-width:150px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px}
+  .kpi b{display:block;font-size:15px;margin-top:2px}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:24px}
+  .src{font-size:12.5px;color:var(--muted)}
+  .src li{margin:3px 0;word-break:break-all}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>UE 场景工作台 · 本地图生 3D 模型选型调研报告</h1>
+  <div class="meta">调研日期：2026-11-02 ｜ 本机：NVIDIA RTX 4060 Ti 16GB + 32GB RAM + Windows 11（驱动 610.88）｜ 用途：替换 Tripo 云端 API 的「图生 3D」步骤（④减面暂缓、⑤批量导入 UE）<br>选型加权（质量优先）：图生3D质量（几何精度/水密性/细节保真/材质质感）&gt; PBR 完整度 &gt; GLB 可用性 &gt; 速度（单资产 1–4 分钟可接受）&gt; 显存（16GB 硬上限，可接受 FP16/量化/分段加载）&gt; 部署简易度 &gt; 许可</div>
+</header>
+
+<section>
+<h2>一、结论摘要</h2>
+<div class="rec primary">
+  <h3 style="margin-top:0">首选 · 方案 A：Hunyuan3D-2.1（质量最大化路径）</h3>
+  <p>当前<b>可本地部署</b>的开源图生 3D 中第三方评测质量最高（上海 AI Lab 22 方法评测对象级综合第一的 Hunyuan 家族里唯一开源权重可部署版本），且<b>原生输出真 PBR 三通道贴图（albedo/metallic/roughness）</b>。本机 16GB 下官方明确 shape 阶段（10GB）可跑，texture 阶段（21GB）用 <code>--low_vram_mode</code> 把显存 offload 到 32GB 系统内存——但<b>单资产预计 10–20 分钟</b>，超出 1–4 分钟窗口，属于「质量优先、慢速档」，<b>必须先实测 offload 在本机能否跑完</b>。
+</div>
+<div class="rec">
+  <h3 style="margin-top:0">次选 · 方案 B：TRELLIS v1（速度–质量均衡，ComfyUI 路线）</h3>
+  <p>官方显存下限正好 16GB（本机 FP16 可跑），几何质量为第一梯队（上海 AI Lab 材质最佳提名），单资产预计 1–3 分钟落在可接受窗口；部署路径最成熟（ComfyUI 原生工作流，Windows 可行）。<b>短板：仅烘焙单张 albedo 贴图、无 PBR</b>，UE 材质需后补。适合作为 A 实测失败或嫌慢时的兜底。</p>
+</div>
+<div class="rec">
+  <h3 style="margin-top:0">快速 PBR 档 · 方案 C：Stable Fast 3D</h3>
+  <p>6GB 显存、秒级出图、GLB 开箱导入 UE，输出 albedo + tangent normal 贴图；<b>但 metalness/roughness 是整物体单一标量而非贴图</b>，几何细节轻量（默认 27.4K 面）。适合快速原型/远景道具/大批量试错，不满足特写质量。许可：年营收 ≤100 万美元免费商用。</p>
+</div>
+<div class="note"><b>两个重要事实纠偏（已独立二次核验主源）：</b>
+<ol>
+<li><b>腾讯 Hunyuan3D-2.5 / 3.0 / 3.1 从未开放模型权重</b>（仅托管平台），本地部署不可行——可本地部署的最新版本是 <b>2.1</b>（2025-06 全开源含训练代码）。</li>
+<li><b>阿里通义「青龙 / Qianlong」图生 3D 未查到</b>（多组检索+核验均未命中；阿里百炼的图生 3D 实为 VAST Tripo 托管 API，与你正在停用的 Tripo 是同一家）。命中的「青龙」是 OpenLoong 人形机器人项目。</li>
+</ol>
+另：质量向新模型 <b>Pixal3D</b>（腾讯 ARC×清华，SIGGRAPH 2026，MIT，近重建级保真 + PBR 纹理 GLB）值得关注，但官方未承诺 16GB 可跑，列入观察清单待实测。</div>
+</section>
+
+<section>
+<h2>二、本机硬件与约束</h2>
+<div class="kpi">
+  <div>GPU<b>RTX 4060 Ti 16GB</b>（16380 MiB）</div>
+  <div>内存<b>32 GB</b></div>
+  <div>系统<b>Windows 11（中文）</b></div>
+  <div>显存硬上限<b>16 GB</b>（可 FP16/量化/offload）</div>
+  <div>速度窗口<b>1–4 分钟/资产</b></div>
+</div>
+<p>NVIDIA 卡 → CUDA/PyTorch 路线全部可行；无独立显卡的 CPU 方案：仅 TripoSR 有官方 CPU 回退（很慢），其余模型 CPU 均不实用——<b>若需无 GPU 兜底，建议保留 Tripo 云端 API 作备用，不依赖本地 CPU 方案</b>。</p>
+</section>
+
+<section>
+<h2>三、候选模型总对比（全部调研对象，按质量分层）</h2>
+<div class="tbl-scroll">
+<table>
+<tr>
+  <th>模型</th><th>机构 / 发布</th><th>输入</th><th>输出格式</th><th>PBR 完整度</th><th>典型面数</th><th>推理时间</th><th>显存需求</th><th>本机 16GB 适配</th><th>部署方式</th><th>许可（商用）</th><th>热度（2026-11-02）</th>
+</tr>
+<tr class="tier1">
+  <td class="hl">Hunyuan3D-2.1</td>
+  <td>腾讯 / 2025-06</td>
+  <td>文生 + 图生（单图/多视角）</td>
+  <td>GLB/OBJ + 贴图</td>
+  <td><span class="tag t-ok">真 PBR</span> albedo+metallic+roughness 三通道（无 normal）</td>
+  <td>官方未公布</td>
+  <td>shape 快；texture 慢，社区估算单资产 10–20 分钟（16GB offload 场景）</td>
+  <td>shape 10GB / texture 21GB / 全流程 29GB（官方 README）</td>
+  <td><span class="tag t-warn">需 offload</span> shape 可跑；texture 需 --low_vram_mode 用系统内存</td>
+  <td>官方主打 Linux；Windows 需 WSL2 或社区教程；ComfyUI 集成待确认</td>
+  <td>Tencent Hunyuan Community License：<b>可商用</b>，排除 EU/UK/韩国（<b>台湾可用</b>），100 万 MAU 上限，禁输出训练其他模型</td>
+  <td>2.1 仓库 ~2.2k stars；HF 月下载 57,755</td>
+</tr>
+<tr class="tier1">
+  <td class="hl">TRELLIS v1</td>
+  <td>微软 / 2024-12</td>
+  <td>单图 / 多视角</td>
+  <td>GLB/OBJ + 贴图</td>
+  <td><span class="tag t-bad">无 PBR</span> 仅烘焙单张 albedo 贴图</td>
+  <td>官方未公布（可调）</td>
+  <td>4090 约 25s（社区估计，无主源）；4060 Ti 预计 1–3 分钟</td>
+  <td>官方下限 16GB（FP16）</td>
+  <td><span class="tag t-ok">可跑</span> 官方下限正好 16GB</td>
+  <td>官方 Linux-only；现实路径 ComfyUI 原生工作流（Windows 支持）</td>
+  <td><b>MIT</b>，完全自由商用</td>
+  <td>14.2k stars；HF 月下载 1,742,445</td>
+</tr>
+<tr class="tier1">
+  <td class="hl">TRELLIS.2-4B</td>
+  <td>微软 / 2025-12（CVPR2026 最佳学生论文）</td>
+  <td>文生 + 图生</td>
+  <td>GLB 任意拓扑</td>
+  <td><span class="tag t-ok">PBR 四通道</span> BaseColor/Roughness/Metallic/Opacity</td>
+  <td>任意拓扑</td>
+  <td>H100 约 6–10s（官方）</td>
+  <td>官方要求 24GB</td>
+  <td><span class="tag t-bad">不可跑</span> 16GB 官方配置跑不了；HF 有 2 个社区量化版但无实测</td>
+  <td>ComfyUI 官方工作流</td>
+  <td><b>MIT</b>，完全自由商用</td>
+  <td>HF 月下载 1,948,635</td>
+</tr>
+<tr class="tier1">
+  <td class="hl">Pixal3D</td>
+  <td>腾讯 ARC × 清华 / SIGGRAPH 2026</td>
+  <td>单图 / 多视角</td>
+  <td>GLB + PBR 纹理</td>
+  <td><span class="tag t-ok">PBR</span> 像素对齐近重建级保真</td>
+  <td>未查到</td>
+  <td>未查到（官方给档位未给耗时）</td>
+  <td>--low_vram 1024 档；官方未给 16GB 承诺（社区排障表出现 12GB OOM 字样）</td>
+  <td><span class="tag t-warn">待实测</span> low_vram 档可试，不承诺</td>
+  <td>ComfyUI 节点 Saganaki22/Pixal3D-ComfyUI（README 写明 Windows CUDA wheel 顺序）；基于 TRELLIS.2 backbone</td>
+  <td><b>MIT</b>，完全自由商用</td>
+  <td>2,565 stars</td>
+</tr>
+<tr class="tier1">
+  <td class="hl">Hunyuan3D-2.0 家族</td>
+  <td>腾讯 / 2025-04</td>
+  <td>文生 + 图生</td>
+  <td>GLB/OBJ + 贴图</td>
+  <td><span class="tag t-bad">无 PBR</span> Paint 仅 RGB 颜色贴图</td>
+  <td>官方未公布</td>
+  <td>全流程 16GB 内官方可跑</td>
+  <td>mini 5GB / 标准 16GB 内</td>
+  <td><span class="tag t-ok">可跑</span>（含 mini/mv/Fast/Turbo 变体）</td>
+  <td>官方 Linux；ComfyUI-Hunyuan3D 节点生态</td>
+  <td>同上 Hunyuan 社区许可（台湾可用、可商用）</td>
+  <td>Hunyuan3D-2 仓库 15.3k stars</td>
+</tr>
+<tr class="tier2">
+  <td class="hl">Stable Fast 3D</td>
+  <td>Stability AI / 2024-07</td>
+  <td>单图</td>
+  <td><b>GLB 开箱</b></td>
+  <td><span class="tag t-warn">部分 PBR</span> albedo + tangent normal 贴图；<b>MR 为整物体单一标量</b>（论文自认）</td>
+  <td>默认 27.4K 面</td>
+  <td>0.5–3 秒/资产</td>
+  <td>约 6GB</td>
+  <td><span class="tag t-ok">零压力</span></td>
+  <td>pip 原生 Windows 可行；ComfyUI-3D-Pack 集成</td>
+  <td>Stability Community License：年营收 ≤100 万美元免费商用（个人创作无虞）</td>
+  <td>1.9k stars；HF 月下载 2.7 万</td>
+</tr>
+<tr class="tier2">
+  <td class="hl">CraftsMan3D</td>
+  <td>HKUST-SAIL / 2024-10</td>
+  <td>单图</td>
+  <td>OBJ（几何）</td>
+  <td><span class="tag t-bad">无纹理</span> 原生不输出任何纹理/PBR，需另接纹理烘焙</td>
+  <td>规则拓扑（对口 UE）</td>
+  <td>两阶段 5s+20s（官方）；bf16 下本机预计 30s–1min</td>
+  <td>官方未公布；bf16 预计 16GB 内</td>
+  <td><span class="tag t-ok">预计可跑</span>（需实测）</td>
+  <td>原生 Python；无官方 ComfyUI 节点（第三方有）</td>
+  <td><b>MIT</b>，完全自由商用</td>
+  <td>834 stars；维护积极（2025-06 仍在更新）</td>
+</tr>
+<tr class="tier3">
+  <td class="hl">TripoSR</td>
+  <td>Stability AI + Tripo / 2024-03</td>
+  <td>单图</td>
+  <td>GLB</td>
+  <td><span class="tag t-bad">无 PBR</span> 单张 2048 albedo</td>
+  <td>数千面（低模）</td>
+  <td>2–5 秒</td>
+  <td>约 6GB（有 CPU 回退）</td>
+  <td><span class="tag t-ok">可跑</span></td>
+  <td>ComfyUI-3D-Pack；Windows 可行</td>
+  <td><b>MIT</b>，完全自由商用</td>
+  <td>7.3k stars；HF 月下载 201,667</td>
+</tr>
+<tr class="tier3">
+  <td class="hl">CRM</td>
+  <td>thu-ml / 2024-05</td>
+  <td>单图</td>
+  <td>OBJ + UV</td>
+  <td><span class="tag t-bad">仅 albedo</span></td>
+  <td>24K 面</td>
+  <td>分钟级</td>
+  <td>官方未公布；16GB 需走拆分工作流</td>
+  <td><span class="tag t-warn">勉强</span> 依赖老旧（torch 1.13/kaolin），官方 Demo 已报错</td>
+  <td>ComfyUI-3D-Pack</td>
+  <td><b>MIT</b></td>
+  <td>704 stars</td>
+</tr>
+<tr class="tier3">
+  <td class="hl">LGM</td>
+  <td>清华 / 2024-05</td>
+  <td>单图</td>
+  <td>高斯 .ply（UE 不可直用）</td>
+  <td><span class="tag t-bad">仅 albedo</span>（后处理烘焙）</td>
+  <td>取决于后处理</td>
+  <td>生成快；转网格需数分钟有损后处理（高斯→NeRF→MC→减面→UV）</td>
+  <td>官方未公布</td>
+  <td><span class="tag t-warn">成本高</span> 后处理链路重</td>
+  <td>ComfyUI-3D-Pack</td>
+  <td><b>MIT</b></td>
+  <td>2.1k stars</td>
+</tr>
+<tr class="reject">
+  <td>Era3D</td><td>腾讯? / 2024-05</td><td>单图（多视图扩散前端）</td><td>需再接 Instant-NSR 网格化</td>
+  <td><span class="tag t-bad">无</span></td><td>未查到</td><td>分钟级</td>
+  <td>正好踩 ≥16GB 下限</td><td><span class="tag t-bad">不建议</span></td>
+  <td>ComfyUI-3D-Pack</td>
+  <td><span class="tag t-bad">AGPL-3.0</span> 商用传染风险</td><td>647 stars</td>
+</tr>
+<tr class="reject">
+  <td>Wonder3D</td><td>xxlong0 / 2023-11</td><td>单图 → 多视图法线+颜色</td><td>需额外融合成网格</td>
+  <td><span class="tag t-bad">无 PBR</span> 256 原生纹理偏糊</td><td>—</td><td>3–6 分钟</td>
+  <td>官方未公布 GB；NeuS 低显存路径紧张</td><td><span class="tag t-warn">勉强</span></td>
+  <td>ComfyUI-3D-Pack</td><td>MIT</td><td>5.5k stars</td>
+</tr>
+<tr class="reject">
+  <td>One-2-3-45</td><td>南洋理工 / 2023-09</td><td>单图</td><td>OBJ（顶点色）</td>
+  <td><span class="tag t-bad">无</span></td><td>—</td><td>分钟级</td>
+  <td>官方硬性 ≥18GB</td><td><span class="tag t-bad">不可行</span> 且依赖全 Linux 专用</td>
+  <td>ComfyUI-3D-Pack</td><td>MIT</td><td>1.7k stars</td>
+</tr>
+<tr class="reject">
+  <td>InstantMesh</td><td>腾讯 ARC / 2024-04</td><td>单图</td><td>OBJ + 1024 纹理</td>
+  <td><span class="tag t-bad">仅 albedo</span></td><td>—</td><td>约 10s（A100）</td>
+  <td>large 需 24GB（16GB 必 OOM，第三方实测）</td><td><span class="tag t-bad">不可行</span> 仅 base 可跑、质量下降；2024 起未维护</td>
+  <td>ComfyUI-3D-Pack（Windows 预编译）</td><td>MIT</td><td>4.6k stars</td>
+</tr>
+<tr class="reject">
+  <td>Direct3D-S2 / Hi3D / Seed3D</td><td>2025-2026 新模型扫描</td><td>—</td><td>—</td>
+  <td>Direct3D-S2 无 PBR；Hi3D 纯几何无贴图</td><td>—</td><td>—</td>
+  <td>Direct3D-S2 1024 档 24GB；Hi3D 需 Linux+96GB H20</td><td><span class="tag t-bad">本机排除</span></td>
+  <td>—</td><td>Seed3D 无开源权重（仍是火山云 API）</td><td>—</td>
+</tr>
+</table>
+</div>
+<p class="src">注：所有显存/时间/热度数据均来自官方 README/模型页/论文或第三方实测，来源 URL 见文末「来源清单」；「未查到」字段已在调研报告内如实标注。本表分层：<span class="tag t-ok">第一梯队（质量向）</span> <span class="tag t-warn">第二梯队（16GB 可跑质量档）</span> <span class="tag t-ok" style="background:#fefce8;color:#a16207">轻量/对照</span> <span class="tag t-bad">不建议/本机不可行</span></p>
+</section>
+
+<section>
+<h2>四、本机 16GB 适配速查</h2>
+<table style="min-width:700px">
+<tr><th>状态</th><th>模型 / 配置</th></tr>
+<tr><td><span class="tag t-ok">官方承诺可跑</span></td><td>TRELLIS v1（下限 16GB FP16）· Hunyuan3D-2.0 全家族（16GB 全流程）· Hunyuan3D-2.1 shape 阶段（10GB）· Stable Fast 3D（6GB）· TripoSR（6GB）· CraftsMan3D（bf16 预计）</td></tr>
+<tr><td><span class="tag t-warn">需配置/未承诺</span></td><td>Hunyuan3D-2.1 texture 阶段（21GB → --low_vram_mode 内存 offload，32GB RAM 可试）· Pixal3D low_vram 1024 档（官方未给数字）· InstantMesh-base（质量下降）</td></tr>
+<tr><td><span class="tag t-bad">本机不可行</span></td><td>TRELLIS.2-4B（24GB）· InstantMesh-large（24GB）· One-2-3-45（≥18GB + Linux 依赖）· Direct3D-S2（24GB）· Hi3D（Linux/96GB）· Era3D（AGPL + 踩显存下限）</td></tr>
+</table>
+</section>
+
+<section>
+<h2>五、推荐方案详述</h2>
+
+<div class="rec primary">
+<h3>方案 A（首选，质量最大化）：Hunyuan3D-2.1 —— shape 本地 + texture 内存 offload</h3>
+<p><b>为什么是它：</b>质量优先原则下，这是「第三方评测质量最高（上海 AI Lab 22 方法综合第一家族）+ 唯一真 PBR 三通道 + 16GB 可试」的组合。2.5/3.0/3.1 无权重，2.1 即当前可本地部署的最强版本（官方 README 明确 16GB 可跑 shape、texture 用 --low_vram_mode）。</p>
+<h4>部署步骤概要（实施轮细化）</h4>
+<ul>
+<li>官方仓库 Tencent/Hunyuan3D-2（含训练代码，全开源）→ 拉取 Hunyuan3D-2.1 shape 3.0B + PBR-Paint 权重（HF tencent/Hunyuan3D-2.1）</li>
+<li>环境：Python 3.10 + PyTorch（CUDA 12.x）+ HuggingFace 权重自动下载；Windows 上首选 WSL2（官方主打 Linux），或按社区 Windows 教程（依赖偏 Linux，flash-attn 等需编译——<b>需实测确认是否必需</b>）</li>
+<li>texture 阶段加 <code>--low_vram_mode</code>，把 21GB 显存需求 offload 到系统内存（32GB RAM 官方预期可试）</li>
+<li>包一层本地 HTTP 服务（子进程调用官方 inference 脚本 + 任务队列 + 轮询接口），供工作台对接</li>
+</ul>
+<h4>预期效果</h4>
+<p>质量上限最高：几何精度与细节保真为可本地部署模型中的第一档；PBR 三通道贴图（albedo/metallic/roughness）可直接用于 UE 材质；GLB 输出导入 UE 管线。</p>
+<h4>代价与风险（必须正视）</h4>
+<ul>
+<li>16GB 上 texture 阶段单资产预计 <b>10–20 分钟</b>（社区估算），显著超出 1–4 分钟窗口——若批量生产不可接受，退回方案 B/C，或把 texture 阶段留到夜间/排队</li>
+<li>offload 到系统内存是否稳定跑完<b>需本机实测</b>，无二手结论可依</li>
+</ul>
+<h4>实测验证要点</h4>
+<ol>
+<li><code>--low_vram_mode</code> 在 4060 Ti 16GB + 32GB RAM 上 texture 阶段能否跑完、实际耗时（官方声明 vs 本机实测）</li>
+<li>PBR 三通道贴图质量与几何水密性（与 Tripo P1 出图对照）</li>
+<li>Windows 部署路径（WSL2 vs 原生）哪个能跑通</li>
+</ol>
+</div>
+
+<div class="rec">
+<h3>方案 B（次选，速度–质量均衡）：TRELLIS v1 —— ComfyUI 原生工作流</h3>
+<p><b>为什么是它：</b>官方显存下限正好 16GB（本机承诺可跑）、几何第一梯队、部署最成熟（ComfyUI Windows 原生支持）、单资产预计 1–3 分钟落在可接受窗口。质量短板是<b>无 PBR（仅 albedo）</b>。</p>
+<h4>部署步骤概要</h4>
+<ul>
+<li>安装 ComfyUI Windows 一键包 → 官方 ComfyUI-TRELLIS 工作流 → 权重自动下载（microsoft/TRELLIS-image-large，FP16）</li>
+<li>ComfyUI 自带 REST API（POST /prompt 提交工作流、GET /history 轮询）——与工作台异步轮询骨架天然契合</li>
+</ul>
+<h4>预期效果</h4>
+<p>16GB 内稳定运行，单资产 1–3 分钟；几何质量第一梯队（上海 AI Lab 材质最佳提名之一）；输出 GLB + 单张 albedo 贴图，UE 材质后补（UE 程序化材质/已有材质库，或叠加方案 C 的纹理烘焙——补偿效果需实测）。</p>
+<h4>实测验证要点</h4>
+<ol>
+<li>16GB 峰值显存与单资产实际耗时（验证 1–4 分钟窗口）</li>
+<li>几何精度/水密性 vs Tripo P1 对照</li>
+<li>albedo 贴图清晰度（2048? 官方默认）与 UE 无 PBR 补偿方案的实际观感</li>
+</ol>
+</div>
+
+<div class="rec">
+<h3>方案 C（快速 PBR 档，轻量）：Stable Fast 3D</h3>
+<p><b>为什么是它：</b>唯一「GLB 开箱 + 贴图较完整 + 秒级 + 低显存」组合，适合快速原型与大批量试错；可作为 A/B 的补充档位。</p>
+<h4>部署步骤概要</h4>
+<ul>
+<li><code>pip install stable-fast-3d</code>（或 ComfyUI-3D-Pack 集成节点），权重自动下载，Windows 原生可行</li>
+<li>独立 Python 服务或 ComfyUI 节点两种形态均可对接工作台</li>
+</ul>
+<h4>预期效果</h4>
+<p>6GB、0.5–3 秒/资产、GLB 开箱导入 UE；albedo + tangent normal 贴图齐全；MR 为整物体标量（金属/粗糙度统一值，适合非金属材质场景资产）；几何细节轻量（27.4K 面），适合远景/道具/批量，不适合特写。许可：≤100 万美元年营收免费商用，个人创作无虞。</p>
+<h4>实测验证要点</h4>
+<ol>
+<li>几何细节在 UE 场景远近景的实际表现（27.4K 面是否够用）</li>
+<li>默认 1024 纹理分辨率是否够；MR 标量对资产观感的影响</li>
+</ol>
+</div>
+
+<div class="note"><b>观察清单（升级 24GB 显卡后的首选，不投入本轮部署）：</b>
+<ul>
+<li><b>TRELLIS.2-4B</b>（MIT）：唯一原生 PBR 四通道 GLB（BaseColor/Roughness/Metallic/Opacity）、任意拓扑——24GB 官方要求，HF 已有 2 个社区量化版（无实测）。</li>
+<li><b>Pixal3D</b>（MIT，SIGGRAPH 2026）：近重建级保真 + PBR 纹理 GLB + 单图/多视角，基于 TRELLIS.2 backbone，ComfyUI 节点现成（Windows 支持明确）。若其 low_vram 1024 档在 16GB 实测可行，可提前转正——<b>建议在方案 A/B 实测时一并试跑验证</b>。</li>
+</ul></div>
+</section>
+
+<section>
+<h2>六、与现有工作台（server.mjs）对接方式</h2>
+<p>已确认工作台现状：手写路由的原生 Node server，具备 <b>multipart 图片上传、文件落地、异步任务创建 + 轮询（/api/tripo/upload → generate → query → download）</b> 完整骨架，config.json 有 comfly/tripo 配置节。本地模型接入只需「镜像」这套语义：</p>
+<ol>
+<li><b>新增配置节 <code>local3d</code></b>：<code>{ engine: "hunyuan2.1" | "comfyui" | "sf3d", baseUrl, outputDir }</code>，与现有 tripo 节并列，前端控制台加「引擎切换」</li>
+<li><b>新增路由组 <code>/api/local3d/*</code></b>：upload（复用现有 multipart 解析与图片落地，或直接传本地文件路径）、generate（提交任务）、query（轮询状态）、download（取 GLB）——四个接口语义与现有 /api/tripo/* 一一对应，改动集中在新增一个 adapter 模块</li>
+<li><b>ComfyUI 路线最省事</b>（方案 B/C）：server.mjs 直接调 ComfyUI REST API——POST /prompt 提交工作流（把输入图路径填进加载节点参数）、GET /history/{prompt_id} 轮询、完成后从 ComfyUI 输出目录取 GLB，现有异步轮询骨架直接套用</li>
+<li><b>Hunyuan3D-2.1 路线</b>（方案 A）：官方脚本无 HTTP 接口，需包一层本地 HTTP 服务（子进程调用 + 任务队列 + 状态接口），工作台只多一个 baseUrl 配置；或若官方 ComfyUI 集成可用则同 ComfyUI 路线</li>
+<li>输出产物（GLB + 贴图）落到工作台 <code>Assets/Models/&lt;name&gt;/</code>，与现有 Tripo 下载目录结构一致，后续 ⑤ 批量导入 UE 的 unreal Python 脚本无需改动</li>
+</ol>
+</section>
+
+<section>
+<h2>七、许可与商用提示</h2>
+<table style="min-width:700px">
+<tr><th>模型</th><th>许可</th><th>商用要点</th></tr>
+<tr><td>Hunyuan3D-2.1</td><td>Tencent Hunyuan Community License</td><td>可商用；排除 EU/UK/韩国地区（<b>台湾在许可范围内</b>）；100 万 MAU 上限；禁止用模型输出训练其他模型——个人创作场景无冲突</td></tr>
+<tr><td>TRELLIS v1 / .2、Pixal3D、CraftsMan3D、TripoSR、CRM、LGM</td><td>MIT</td><td>完全自由（含商用、修改、再分发）</td></tr>
+<tr><td>Stable Fast 3D</td><td>Stability AI Community License</td><td>年营收 ≤100 万美元免费商用；个人创作/非盈利无虞；超门槛需付费授权</td></tr>
+<tr><td>Era3D</td><td>AGPL-3.0</td><td>商用有代码传染风险——不建议进生产流水线</td></tr>
+</table>
+</section>
+
+<section>
+<h2>八、关键来源</h2>
+<ul class="src">
+<li>腾讯 Hunyuan3D 官方：GitHub <a href="https://github.com/Tencent-Hunyuan/Hunyuan3D-2">Tencent-Hunyuan/Hunyuan3D-2</a>（含 2.1，README 原文显存拆分 10/21/29GB 与 --low_vram_mode）；HF <a href="https://huggingface.co/tencent/Hunyuan3D-2.1">tencent/Hunyuan3D-2.1</a>；2.5 技术报告 arXiv:2506.16504（无权重，HF 页 404 已核验）；许可原文：Tencent Hunyuan Community License（台湾在 Territory 内）</li>
+<li>微软 TRELLIS：GitHub <a href="https://github.com/microsoft/TRELLIS">microsoft/TRELLIS</a>；HF <a href="https://huggingface.co/microsoft/TRELLIS-image-large">microsoft/TRELLIS-image-large</a>；TRELLIS.2 HF <a href="https://huggingface.co/microsoft/TRELLIS.2-4B">microsoft/TRELLIS.2-4B</a>（24GB、PBR 四通道、量化版 ×2）</li>
+<li>Pixal3D：GitHub（腾讯 ARC × 清华，SIGGRAPH 2026，MIT，2,565 stars）；ComfyUI 节点 <a href="https://github.com/Saganaki22/Pixal3D-ComfyUI">Saganaki22/Pixal3D-ComfyUI</a>；ComfyUI v0.35.0 Release Notes「Lower peak trellis workflow vram and ram usage」</li>
+<li>Stable Fast 3D：GitHub <a href="https://github.com/Stability-AI/stable-fast-3d">Stability-AI/stable-fast-3d</a>；论文（27.4K 面、"a single metallic and roughness value for the entire object"、0.5s）；Community License（$1M 门槛）</li>
+<li>早期模型：TripoSR <a href="https://github.com/VAST-AI-Research/TripoSR">VAST-AI-Research/TripoSR</a>（7.3k stars、HF 月下载 201,667、CPU 回退）；Wonder3D <a href="https://github.com/xxlong0/Wonder3D">xxlong0/Wonder3D</a>（5.5k）；One-2-3-45（1.7k，≥18GB）；InstantMesh <a href="https://github.com/TencentARC/InstantMesh">TencentARC/InstantMesh</a>（4.6k，large 16GB OOM 第三方实测）</li>
+<li>纹理/高斯族：CraftsMan3D <a href="https://github.com/HKUST-SAIL/CraftsMan3D">HKUST-SAIL/CraftsMan3D</a>（834、MIT）；CRM thu-ml/CRM（704）；LGM（2.1k）；Era3D（647、AGPL）</li>
+<li>生态：ComfyUI-3D-Pack（MrForExample，3,871 stars，最后 push 2025-12-29，Windows 预编译）；AssetFurnace / image-to-3dlab（1,055 stars，Apache-2.0）；PixelArtistry-Watertight-Meshes（Windows 一键包）</li>
+<li>横向评测：上海 AI 实验室 22 方法评测（2025-10，Hunyuan3D-2.5 对象级综合第一 16.561、Hunyuan3D-2.0 与 TRELLIS 材质最佳）；社区 2025-05 排名 Hunyuan2.5 &gt; Tripo2.5 &gt; Rodin &gt; TRELLIS（Rodin 拓扑最佳，闭源）</li>
+<li>阿里「Qianlong」不存在性核验：阿里云官方文档（百炼 3D 栏目为 Tripo/Tripo-H3.1、Tripo/Tripo-P1.0 托管 API）；「青龙」= OpenLoong 人形机器人官方文档</li>
+</ul>
+</section>
+
+<section>
+<h2>九、下一步（待你确认后进入实施）</h2>
+<ol>
+<li><b>确认选型方向</b>：A（Hunyuan3D-2.1 质量最大化，接受慢速与 offload 实测风险）/ B（TRELLIS v1 均衡，接受无 PBR）/ C（SF3D 快速档）/ A+B 双线并存 / 先实测某方案的验证点再定</li>
+<li>确认后我再写部署实施：环境安装、权重下载、本地服务封装、server.mjs 对接改造、实测验证清单执行</li>
+<li>本轮已完成调研与核验，未做任何部署</li>
+</ol>
+</section>
+
+<footer>UE 工作台 · 本地图生 3D 模型选型调研报告 · 2026-11-02 · 数据抓取与核验基于当日 GitHub/HF/官方文档主源</footer>
+</div>
+</body>
+</html>

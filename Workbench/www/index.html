@@ -13,7 +13,7 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--txt);font-family:"Microsoft YaHei","Segoe UI",sans-serif;min-height:100vh}
-  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  .wrap{max-width:100%;margin:0;padding:20px 16px 52px}
   header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px}
   .brand{display:flex;align-items:center;gap:14px}
   .logo{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#f97316,#fb923c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#14171c}
@@ -72,7 +72,7 @@
   #thumbFull{max-width:86vw;max-height:86vh;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0d1014;box-shadow:0 12px 40px rgba(0,0,0,.6)}
   #refineOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out}
   #refineOverlay.on{display:flex}
-  #refineOverlay .rovbox{background:#131a24;border:1px solid var(--line);border-radius:12px;padding:14px 16px;max-width:880px;width:92vw;max-height:88vh;overflow:auto;cursor:default}
+  #refineOverlay .rovbox{background:#131a24;border:1px solid var(--line);border-radius:12px;padding:16px 18px;max-width:1160px;width:94vw;max-height:90vh;overflow:auto;cursor:default}
   .rcard{position:relative;width:120px;background:#0d1014;border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;cursor:pointer;transition:border-color .15s}
   .rcard:hover{border-color:var(--accent)}
   .rcard img{width:100%;height:96px;object-fit:contain;border-radius:6px;background:#161b22;display:block;cursor:zoom-in}
@@ -81,6 +81,8 @@
   .rcard .rtag{font-size:10px;border-radius:8px;padding:1px 7px;margin-top:4px;display:inline-block}
   .rcard .rtag.ok{background:rgba(42,169,111,.16);color:#5fd08a}
   .rcard .rtag.idle{background:rgba(255,180,79,.12);color:#ffb44f}
+  .rcard .rdel{position:absolute;top:2px;right:2px;z-index:3;width:19px;height:19px;border:none;border-radius:6px;background:rgba(13,16,20,.85);color:var(--red);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .rcard .rdel:hover{background:rgba(248,113,113,.18)}
   .rcard.add{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:140px}
   .rcard.add.on{border-color:var(--accent);background:rgba(79,140,255,.08)}
   .cand{position:relative;width:92px;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:5px;text-align:center;cursor:pointer}
@@ -272,7 +274,7 @@
 <div id="refineOverlay">
   <div class="rovbox">
     <div style="text-align:right;margin-bottom:6px"><button class="mini" id="refineOvClose">关闭 ✕</button></div>
-    <img id="refineOvImg" alt="" style="max-width:100%;max-height:50vh;object-fit:contain;border-radius:8px;background:#0d1014;display:block;margin:0 auto">
+    <img id="refineOvImg" alt="" style="max-width:100%;max-height:72vh;object-fit:contain;border-radius:8px;background:#0d1014;display:block;margin:0 auto">
     <div id="refineOvInfo" style="color:var(--dim);font-size:12px;margin:8px 2px"></div>
     <textarea id="refineOvPrompt" class="minp" rows="2" placeholder="细化提示词（可编辑；留空则使用已保存的模板）"></textarea>
     <div class="toolrow" style="margin-top:8px">
@@ -539,6 +541,7 @@
       btn.addEventListener('click', function(){ items.splice(+btn.dataset.del, 1); renderItems(); });
     });
     setRowStatus();
+    renderRefineCards();
   }
   function setRowStatus(){
     document.querySelectorAll('[data-s]').forEach(function(sp){
@@ -647,7 +650,6 @@
           else { it.status = 'error'; it.statusText = '细化失败'; }
         });
         renderItems();
-        renderRefineCards();
         var okN = r.results.filter(function(x){ return x.status === 'ok'; }).length;
         sLog('refineLog', '细化完成：' + okN + '/' + r.results.length + ' 成功 → Assets\\Models\\<名称>\\refined.png（本地保存）');
       })
@@ -665,11 +667,13 @@
       var card = document.createElement('div'); card.className = 'rcard';
       card.innerHTML =
         '<label class="rchk" title="勾选后参与③模型生成"><input type="checkbox" class="rchkin" data-i="'+idx+'" ' + (it.refineChk === false ? '' : 'checked') + '></label>' +
+        '<button class="rdel" title="删除此资产">✕</button>' +
         '<img src="' + (it.refinedUrl || it.imageData || '') + '" alt="">' +
         '<div class="rn">' + esc(it.name) + '</div>' +
         '<div class="rtag ' + (it.refined ? 'ok' : 'idle') + '">' + (it.refined ? '已细化' : '未细化') + '</div>';
       card.querySelector('img').addEventListener('click', function(){ openRefineOv(it); });
       card.querySelector('.rchkin').addEventListener('change', function(){ it.refineChk = this.checked; });
+      card.querySelector('.rdel').addEventListener('click', function(ev){ ev.stopPropagation(); items.splice(idx, 1); renderItems(); renderRefineCards(); });
       box.appendChild(card);
     });
     if(!items.length){
@@ -697,7 +701,7 @@
       var nm = base, k = 1;
       while(items.some(function(x){ return x.name === nm; })){ nm = base + '_' + (++k); }
       items.push({ id: 'it_' + Date.now() + '_' + items.length, name: nm, category: '其他', prompt: '', imageData: rd.result, source: 'manual', refineChk: true });
-      renderItems(); renderRefineCards();
+      renderItems();
       sLog('refineLog', '已添加资产「' + nm + '」，可勾选后细化 / 建模');
     };
     rd.readAsDataURL(file);
@@ -722,10 +726,12 @@
     post('/api/refine/list', { name: name }).then(function(r){
       box.innerHTML = '';
       if(!r.ok || !r.list || !r.list.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">暂无候选</span>'; return; }
-      r.list.forEach(function(c){
-        var src = c.localUrl + (c.primary && ts ? '?t=' + ts : '');
+      r.list.forEach(function(c, i){
+        var stamp = c.primary ? (ts || c.mtimeMs) : (c.mtimeMs || Date.now());
+        var src = c.localUrl + '?t=' + stamp;
+        var isLatest = !c.primary && i === 0;
         var d = document.createElement('div'); d.className = 'cand' + (c.primary ? ' on' : '');
-        d.innerHTML = '<img src="' + src + '" alt=""><div class="cn">' + (c.primary ? '当前' : (c.name.replace(/refined_(\d+)\.png/,'#$1') || '候选')) + '</div>' + (c.primary ? '<span class="cur">当前</span>' : '');
+        d.innerHTML = '<img src="' + src + '" alt=""><div class="cn">' + (c.primary ? '当前' : (isLatest ? '最新' : (c.name.replace(/refined_(\d+)\.png/,'#$1') || '候选'))) + '</div>' + (c.primary ? '<span class="cur">当前</span>' : (isLatest ? '<span class="cur" style="background:#f97316">最新</span>' : ''));
         if(!c.primary){
           d.addEventListener('click', function(){
             post('/api/refine/select', { name: name, path: c.path }).then(function(r2){
@@ -733,7 +739,7 @@
               var ts2 = Date.now();
               if(refineOvCur && refineOvCur.name === name){ refineOvCur.refinedUrl = r2.localUrl + '?t=' + ts2; refineOvCur.refinedPath = c.path; refineOvCur.refinedTs = ts2; }
               document.getElementById('refineOvImg').src = r2.localUrl + '?t=' + ts2;
-              renderItems(); renderRefineCards(); loadRefineCands(name, ts2);
+              renderItems(); loadRefineCands(name, ts2);
             });
           });
         }
@@ -750,9 +756,9 @@
     post('/api/refine/regen', { name: it.name, imageData: it.imageData, prompt: prompt })
       .then(function(r){
         if(!r.ok){ sLog('refineLog', '重新生成失败：' + (r.error || '')); return; }
-        it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedUrl = r.localUrl; it.refinedPath = r.path; it.lastPrompt = prompt;
-        document.getElementById('refineOvImg').src = r.localUrl;
-        renderItems(); renderRefineCards(); loadRefineCands(it.name);
+        it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedUrl = r.localUrl + '?t=' + r.ts; it.refinedPath = r.path; it.refinedTs = r.ts; it.lastPrompt = prompt;
+        document.getElementById('refineOvImg').src = r.localUrl + '?t=' + r.ts;
+        renderItems(); loadRefineCands(it.name, r.ts);
         sLog('refineLog', '已重新生成 → ' + r.localUrl);
       })
       .catch(function(e){ sLog('refineLog', '重新生成失败：' + e); })
