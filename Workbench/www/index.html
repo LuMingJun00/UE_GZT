@@ -390,7 +390,7 @@
 
   function sLog(id, msg){ var el = document.getElementById(id); if(!el) return; el.textContent = msg + '\n' + el.textContent.split('\n').slice(0,19).join('\n'); }
   function api(path, opts){ return fetch(path, opts || {}).then(function(r){ return r.json(); }); }
-  function post(path, body){ return api(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) }); }
+  function post(path, body, tries){ var n = tries || 0; return fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) }).then(function(r){ return r.json(); }).catch(function(e){ if(n < 1) return post(path, body, n + 1); throw e; }); }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   // 初始化：配置 + MCP 状态

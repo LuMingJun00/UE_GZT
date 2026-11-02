@@ -137,16 +137,21 @@ function isPortOpen(port, cb) {
 }
 
 function sendJson(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(body);
+  if (res.writableEnded) return;
+  if (!res.headersSent) res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(obj));
 }
 
 function readBody(req) {
   return new Promise((resolveBody) => {
     const chunks = [];
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolveBody(v); } };
     req.on("data", (c) => chunks.push(c));
-    req.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => done(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", () => done(""));
+    req.on("aborted", () => done(""));
+    req.on("close", () => { if (!settled) done(""); });
   });
 }
 
@@ -492,7 +497,7 @@ async function handleApi(req, res, url) {
 function serve(request, response) {
   const url = new URL(request.url, "http://127.0.0.1");
   if (url.pathname.startsWith("/api/")) {
-    handleApi(request, response, url).catch(() => sendJson(response, 500, { ok: false, error: "api error" }));
+    handleApi(request, response, url).catch(() => { if (!response.writableEnded) sendJson(response, 500, { ok: false, error: "api error" }); });
     return;
   }
   let filePath;
