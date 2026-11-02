@@ -13,6 +13,7 @@ Workbench/tmp/
 Workbench/.wb-port
 Workbench/.wb-pid
 Workbench/.ekkopbr-inject.pid
+Workbench/.cdp-profile/
 
 # 日志
 *.log
