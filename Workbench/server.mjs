@@ -6,7 +6,7 @@ import { request as httpsRequest } from "node:https";
 import tls from "node:tls";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, dirname, basename } from "node:path";
-import { spawn, execFile } from "node:child_process";
+import { spawn, execFile, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const bundleRoot = resolve(dirname(fileURLToPath(import.meta.url)));
@@ -44,7 +44,20 @@ function loadConfig() {
 }
 
 // Tripo（国外平台 tripo3d.ai）请求走系统代理（浏览器可访问、Node 直连超时的网络环境）；comfly 保持直连
-const tripoProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "";
+function detectSystemProxy() {
+  try {
+    const base = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+    const en = execFileSync("reg", ["query", base, "/v", "ProxyEnable"], { encoding: "utf8", windowsHide: true });
+    if (!/0x1/.test(en)) return "";
+    const srv = execFileSync("reg", ["query", base, "/v", "ProxyServer"], { encoding: "utf8", windowsHide: true });
+    const m = srv.match(/[^\s]+\s+REG_SZ\s+(\S+)/);
+    if (!m) return "";
+    const v = m[1];
+    if (/^https?:\/\//i.test(v)) return v;
+    return "http://" + v.split(";")[0].trim();
+  } catch (e) { return ""; }
+}
+const tripoProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || detectSystemProxy();
 async function proxyFetch(url, opts = {}) {
   if (!tripoProxyUrl) return fetch(url, opts);
   const u = new URL(url);
