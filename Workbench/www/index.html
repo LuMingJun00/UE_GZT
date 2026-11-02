@@ -70,6 +70,18 @@
   #thumbOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}
   #thumbOverlay.on{display:flex}
   #thumbFull{max-width:86vw;max-height:86vh;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0d1014;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  #refineOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out}
+  #refineOverlay.on{display:flex}
+  #refineOverlay .rovbox{background:#131a24;border:1px solid var(--line);border-radius:12px;padding:14px 16px;max-width:880px;width:92vw;max-height:88vh;overflow:auto;cursor:default}
+  .rcard{width:120px;background:#0d1014;border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;cursor:pointer;transition:border-color .15s}
+  .rcard:hover{border-color:var(--accent)}
+  .rcard img{width:100%;height:96px;object-fit:contain;border-radius:6px;background:#161b22;display:block}
+  .rcard .rn{font-size:11.5px;color:var(--sub);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cand{position:relative;width:92px;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:5px;text-align:center;cursor:pointer}
+  .cand.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .cand img{width:100%;height:72px;object-fit:contain;border-radius:5px;background:#161b22;display:block}
+  .cand .cn{font-size:10.5px;color:var(--dim);margin-top:4px}
+  .cand .cur{position:absolute;top:-8px;right:-8px;background:#2aa96f;color:#fff;font-size:10px;border-radius:8px;padding:1px 6px}
   .toolrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
   .chk input{accent-color:var(--teal)}
@@ -217,6 +229,7 @@
         <button class="btn teal" id="btnRefine" style="width:auto;padding:9px 16px">批量高清重绘勾选项</button>
         <span style="color:var(--dim);font-size:12px">comfly gpt-image-2 · 输出高分辨率细化参考图 → Assets\Models\名称\refined.png</span>
       </div>
+      <div class="toolrow" id="refineCards" style="margin-top:10px;flex-wrap:wrap;gap:10px"></div>
       <div class="out" id="refineLog" style="min-height:28px">待执行。</div>
     </div>
 
@@ -249,6 +262,19 @@
 </div>
 
 <div id="thumbOverlay"><img id="thumbFull" alt=""></div>
+<div id="refineOverlay">
+  <div class="rovbox">
+    <div style="text-align:right;margin-bottom:6px"><button class="mini" id="refineOvClose">关闭 ✕</button></div>
+    <img id="refineOvImg" alt="" style="max-width:100%;max-height:50vh;object-fit:contain;border-radius:8px;background:#0d1014;display:block;margin:0 auto">
+    <div id="refineOvInfo" style="color:var(--dim);font-size:12px;margin:8px 2px"></div>
+    <textarea id="refineOvPrompt" class="minp" rows="2" placeholder="细化提示词（可编辑；留空则使用已保存的模板）"></textarea>
+    <div class="toolrow" style="margin-top:8px">
+      <button class="btn teal" id="btnRefineRegen" style="width:auto;padding:8px 14px">重新生成</button>
+      <span style="color:var(--dim);font-size:12px">新图自动加入下方候选，点击候选替换当前图片</span>
+    </div>
+    <div id="refineOvCands" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+  </div>
+</div>
 <script>
 (function(){
   var logEl = document.getElementById('log');
@@ -381,7 +407,7 @@
   // 缩略图放大查看
   var overlay = document.getElementById('thumbOverlay');
   overlay.addEventListener('click', function(){ overlay.classList.remove('on'); });
-  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') overlay.classList.remove('on'); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ overlay.classList.remove('on'); document.getElementById('refineOverlay').classList.remove('on'); } });
 
   // 上传参考图
   var zone = document.getElementById('splitZone');
@@ -476,7 +502,7 @@
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td><input type="checkbox" class="ichk" data-i="'+idx+'" checked></td>' +
-        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></td>' +
+        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.refinedUrl || it.imageData || '') + '" alt=""></td>' +
         '<td><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></td>' +
         '<td><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></td>' +
         '<td><input class="minp" data-f="prompt" data-i="'+idx+'" value="'+esc(it.prompt || '')+'"></td>' +
@@ -497,8 +523,8 @@
     });
     body.querySelectorAll('.mthumb').forEach(function(t){
       t.addEventListener('click', function(){
-        var it = items[+t.dataset.i]; if(!it || !it.imageData) return;
-        document.getElementById('thumbFull').src = it.imageData;
+        var it = items[+t.dataset.i]; if(!it || !(it.refinedUrl || it.imageData)) return;
+        document.getElementById('thumbFull').src = it.refinedUrl || it.imageData;
         document.getElementById('thumbOverlay').classList.add('on');
       });
     });
@@ -609,15 +635,84 @@
         r.results.forEach(function(res){
           var it = items.find(function(x){ return x.id === res.id; });
           if(!it) return;
-          if(res.status === 'ok'){ it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedPath = res.path; it.imageData = res.url; }
+          if(res.status === 'ok'){ it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedPath = res.path; it.refinedUrl = res.localUrl; }
           else { it.status = 'error'; it.statusText = '细化失败'; }
         });
         renderItems();
+        renderRefineCards();
         var okN = r.results.filter(function(x){ return x.status === 'ok'; }).length;
-        sLog('refineLog', '细化完成：' + okN + '/' + r.results.length + ' 成功 → Assets\\Models\\<名称>\\refined.png');
+        sLog('refineLog', '细化完成：' + okN + '/' + r.results.length + ' 成功 → Assets\\Models\\<名称>\\refined.png（本地保存）');
       })
       .catch(function(e){ sLog('refineLog', '细化失败：' + e); })
       .then(function(){ btn.disabled = false; btn.textContent = '批量高清重绘勾选项'; });
+  });
+
+  // ②-1 细化结果区：卡片展示 / 点击放大 / 重新生成 / 候选替换
+  var refineOvCur = null;
+  function renderRefineCards(){
+    var box = document.getElementById('refineCards');
+    if(!box) return;
+    box.innerHTML = '';
+    items.filter(function(it){ return it.refined; }).forEach(function(it){
+      var card = document.createElement('div'); card.className = 'rcard';
+      card.innerHTML = '<img src="' + (it.refinedUrl || it.imageData || '') + '" alt=""><div class="rn">' + esc(it.name) + '</div>';
+      card.addEventListener('click', function(){ openRefineOv(it); });
+      box.appendChild(card);
+    });
+    if(!box.children.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">尚无细化结果。先勾选清单资产并点击上方「批量高清重绘」。</span>'; }
+  }
+  function openRefineOv(it){
+    refineOvCur = it;
+    document.getElementById('refineOvImg').src = it.refinedUrl || it.imageData || '';
+    document.getElementById('refineOvInfo').textContent = '资产：' + it.name + ' · 当前图片 → Assets\\Models\\' + it.name + '\\refined.png';
+    document.getElementById('refineOvPrompt').value = '';
+    document.getElementById('refineOverlay').classList.add('on');
+    loadRefineCands(it.name);
+  }
+  function closeRefineOv(){ document.getElementById('refineOverlay').classList.remove('on'); refineOvCur = null; }
+  function loadRefineCands(name){
+    var box = document.getElementById('refineOvCands');
+    box.innerHTML = '<span style="color:var(--dim);font-size:12px">候选加载中…</span>';
+    post('/api/refine/list', { name: name }).then(function(r){
+      box.innerHTML = '';
+      if(!r.ok || !r.list || !r.list.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">暂无候选</span>'; return; }
+      r.list.forEach(function(c){
+        var d = document.createElement('div'); d.className = 'cand' + (c.primary ? ' on' : '');
+        d.innerHTML = '<img src="' + c.localUrl + '" alt=""><div class="cn">' + (c.primary ? '当前' : (c.name.replace(/refined_(\d+)\.png/,'#$1') || '候选')) + '</div>' + (c.primary ? '<span class="cur">当前</span>' : '');
+        if(!c.primary){
+          d.addEventListener('click', function(){
+            post('/api/refine/select', { name: name, path: c.path }).then(function(r2){
+              if(!r2.ok){ alert('替换失败：' + (r2.error || '')); return; }
+              if(refineOvCur && refineOvCur.name === name){ refineOvCur.refinedUrl = r2.localUrl; refineOvCur.refinedPath = c.path; }
+              document.getElementById('refineOvImg').src = r2.localUrl;
+              renderItems(); renderRefineCards(); loadRefineCands(name);
+            });
+          });
+        }
+        box.appendChild(d);
+      });
+    });
+  }
+  document.getElementById('btnRefineRegen').addEventListener('click', function(){
+    if(!refineOvCur) return;
+    var it = refineOvCur;
+    var prompt = document.getElementById('refineOvPrompt').value.trim() || document.getElementById('refinePrompt').value.trim();
+    if(!prompt){ alert('请填写细化提示词'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = '生成中…';
+    post('/api/refine/regen', { name: it.name, imageData: it.imageData, prompt: prompt })
+      .then(function(r){
+        if(!r.ok){ sLog('refineLog', '重新生成失败：' + (r.error || '')); return; }
+        it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedUrl = r.localUrl; it.refinedPath = r.path;
+        document.getElementById('refineOvImg').src = r.localUrl;
+        renderItems(); renderRefineCards(); loadRefineCands(it.name);
+        sLog('refineLog', '已重新生成 → ' + r.localUrl);
+      })
+      .catch(function(e){ sLog('refineLog', '重新生成失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = '重新生成'; });
+  });
+  document.getElementById('refineOvClose').addEventListener('click', closeRefineOv);
+  document.getElementById('refineOverlay').addEventListener('click', function(e){
+    if(e.target === this) closeRefineOv();
   });
 
   // ③ Tripo 建模

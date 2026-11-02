@@ -1,8 +1,8 @@
 // UE 场景制作工作台 - 本地控制台服务（仅监听本机 127.0.0.1）
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync } from "node:fs";
-import { extname, join, relative, resolve, dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { extname, join, relative, resolve, dirname, basename } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -290,6 +290,74 @@ async function handleApi(req, res, url) {
     return true;
   }
 
+  // 单个资产重新生成细化图（保存本地 Assets\Models\<名称>\refined_<ts>.png）
+  if (path === "/api/refine/regen") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const name = sanitizeName(String(body.name || "").trim());
+    const imageData = body.imageData;
+    if (!name || !imageData) { sendJson(res, 400, { ok: false, error: "缺少名称或源图" }); return true; }
+    const prompt = String(body.prompt || "").trim() || cfg.prompts?.refineTemplate || "";
+    if (!prompt) { sendJson(res, 400, { ok: false, error: "缺少细化提示词" }); return true; }
+    try {
+      const tmpImg = join(TMP_DIR, "regen_src_" + name + "_" + Date.now() + ".png");
+      saveBase64Image(imageData, tmpImg);
+      const url = await comflyEdits(cfg, tmpImg, prompt);
+      const ts = Date.now();
+      const dest = join(MODEL_ROOT, name, "refined_" + ts + ".png");
+      await downloadUrlToFile(url, dest);
+      sendJson(res, 200, { ok: true, path: dest, localUrl: "/assets/Models/" + name + "/refined_" + ts + ".png", ts });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  // 列出某资产的所有本地细化图（refined*.png，最新在前）
+  if (path === "/api/refine/list") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const name = sanitizeName(String(body.name || "").trim());
+    if (!name) { sendJson(res, 400, { ok: false, error: "缺少资产名称" }); return true; }
+    try {
+      const dir = join(MODEL_ROOT, name);
+      const list = [];
+      if (existsSync(dir)) {
+        const files = readdirSync(dir).filter((f) => /^refined(_\d+)?\.png$/i.test(f));
+        const stats = files.map((f) => { const p = join(dir, f); return { f, p, m: statSync(p).mtimeMs }; });
+        stats.sort((a, b) => b.m - a.m);
+        for (const s of stats) {
+          list.push({ path: s.p, name: s.f, primary: /^refined\.png$/i.test(s.f), localUrl: "/assets/Models/" + name + "/" + s.f });
+        }
+      }
+      sendJson(res, 200, { ok: true, list });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  // 选择某候选替换当前细化图（复制为 refined.png 保持主图一致）
+  if (path === "/api/refine/select") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const name = sanitizeName(String(body.name || "").trim());
+    const selPath = String(body.path || "").trim();
+    if (!name || !selPath) { sendJson(res, 400, { ok: false, error: "缺少名称或候选路径" }); return true; }
+    try {
+      const dir = join(MODEL_ROOT, name);
+      const resolved = resolve(selPath);
+      const relCheck = relative(dir, resolved);
+      if (relCheck.startsWith("..") || relCheck.includes("..\\") || relCheck.includes("../")) throw new Error("候选路径不合法");
+      if (!existsSync(resolved) || !/^refined(_\d+)?\.png$/i.test(basename(resolved))) throw new Error("候选文件不存在");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "refined.png"), readFileSync(resolved));
+      sendJson(res, 200, { ok: true, localUrl: "/assets/Models/" + name + "/refined.png" });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
   if (path === "/api/tripo/upload") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const cfg = loadConfig();
@@ -358,8 +426,16 @@ function serve(request, response) {
     return;
   }
   let filePath;
-  try { filePath = safePath(url.pathname); } catch { response.writeHead(400); response.end("Bad request"); return; }
-  if (!filePath || !existsSync(filePath)) { filePath = join(wwwRoot, "index.html"); }
+  if (url.pathname.startsWith("/assets/")) {
+    // 素材库静态映射（本地文件，不依赖网络）
+    const decoded = decodeURIComponent(url.pathname.split("?")[0]);
+    const candidate = resolve(LIBRARY_DIR, decoded.slice("/assets/".length));
+    const relCheck = relative(LIBRARY_DIR, candidate);
+    filePath = (relCheck.startsWith("..") || relCheck.includes("..\\") || relCheck.includes("../") || !existsSync(candidate)) ? null : candidate;
+  } else {
+    try { filePath = safePath(url.pathname); } catch { response.writeHead(400); response.end("Bad request"); return; }
+    if (!filePath || !existsSync(filePath)) { filePath = join(wwwRoot, "index.html"); }
+  }
   try {
     const body = readFileSync(filePath);
     response.writeHead(200, { "Content-Type": mimeTypes[extname(filePath).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-cache" });
@@ -512,7 +588,7 @@ async function refineItems(cfg, items, template) {
       const url = await comflyEdits(cfg, tmpImg, template || cfg.prompts?.refineTemplate);
       const dest = join(MODEL_ROOT, name, "refined.png");
       await downloadUrlToFile(url, dest);
-      results.push({ id: it.id, name: it.name, status: "ok", path: dest, url });
+      results.push({ id: it.id, name: it.name, status: "ok", path: dest, url, localUrl: "/assets/Models/" + name + "/refined.png" });
     } catch (e) {
       results.push({ id: it.id, name: it.name, status: "error", error: String(e && e.message || e) });
     }
