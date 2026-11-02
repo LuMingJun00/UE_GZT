@@ -1,0 +1,18 @@
+# 第三方工具目录（原样保留，不入库）
+Reference/
+
+# 素材库与备份（生成物/大体积，由 backup_project.ps1 zip 快照）
+Assets/
+Backups/
+
+# UE 工程 SceneWorkbench（自身为独立 git 仓库，保留其历史；资产另由 backup_project.ps1 zip 快照）
+SceneWorkbench/
+
+# 工作台运行时文件
+Workbench/tmp/
+Workbench/.wb-port
+Workbench/.wb-pid
+Workbench/.ekkopbr-inject.pid
+
+# 日志
+*.log

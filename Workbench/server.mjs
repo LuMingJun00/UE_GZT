@@ -1,0 +1,721 @@
+// UE 场景制作工作台 - 本地控制台服务（仅监听本机 127.0.0.1）
+import { createServer } from "node:http";
+import { createConnection } from "node:net";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync } from "node:fs";
+import { extname, join, relative, resolve, dirname } from "node:path";
+import { spawn, execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const bundleRoot = resolve(dirname(fileURLToPath(import.meta.url)));
+const wwwRoot = resolve(bundleRoot, "www");
+const workbenchRoot = resolve(bundleRoot, "..");
+const portFile = resolve(bundleRoot, ".wb-port");
+const pidFile = resolve(bundleRoot, ".wb-pid");
+const startPort = Number(process.argv[2]) || 5360;
+
+// 关键路径（Windows）
+const UE_EDITOR = "C:\\Program Files\\UE\\UE_5.7\\Engine\\Binaries\\Win64\\UnrealEditor.exe";
+const UE_PROJECT = join(workbenchRoot, "SceneWorkbench", "SceneWorkbench.uproject");
+const EKKO_DIR = join(workbenchRoot, "Reference", "EkkoPBR-Portable-Windows");
+const LIBRARY_DIR = join(workbenchRoot, "Assets");
+const TEXTURES_DIR = join(LIBRARY_DIR, "Textures");
+const CONTENT_DIR = join(workbenchRoot, "SceneWorkbench", "Content");
+const BACKUP_DIR = join(workbenchRoot, "Backups");
+const SCRIPTS_DIR = resolve(bundleRoot, "scripts");
+const EKKO_DIST = join(EKKO_DIR, "dist");
+const EKKO_INJECT_SERVER = join(SCRIPTS_DIR, "ekkopbr-inject-server.mjs");
+const EKKO_INJECT_PID = resolve(bundleRoot, ".ekkopbr-inject.pid");
+
+// ===== 单模型拆分流程（配置与路径）=====
+const CONFIG_FILE = resolve(bundleRoot, "config.json");
+const TMP_DIR = resolve(bundleRoot, "tmp");
+const MODEL_ROOT = resolve(workbenchRoot, "Assets", "Models");
+const CONTENT_MESHES = resolve(workbenchRoot, "SceneWorkbench", "Content", "Assets", "Meshes");
+const MCP_SERVER_PY = join(workbenchRoot, "SceneWorkbench", "Plugins", "UnrealMCP", "Server", "unreal_mcp_server.py");
+const MCP_PYTHON = join(workbenchRoot, "SceneWorkbench", "Plugins", "UnrealMCP", "Server", ".venv", "Scripts", "python.exe");
+const MCP_PORT = 55557;
+
+function loadConfig() {
+  try { return JSON.parse(readFileSync(CONFIG_FILE, "utf8")); }
+  catch (e) { return null; }
+}
+
+function sanitizeName(name) {
+  if (!name) return "asset";
+  const s = String(name).replace(/[\\/:*?"<>|\s]+/g, "_").replace(/^_+|_+$/g, "");
+  return s || "asset";
+}
+
+const mimeTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
+
+function safePath(urlPath) {
+  const decoded = decodeURIComponent(urlPath.split("?")[0]);
+  const requested = decoded === "/" ? "/index.html" : decoded;
+  const candidate = resolve(wwwRoot, `.${requested}`);
+  const rel = relative(wwwRoot, candidate);
+  return rel.startsWith("..") || rel.includes("..\\") || rel.includes("../") ? null : candidate;
+}
+
+function isPortOpen(port, cb) {
+  const s = createConnection({ port, host: "127.0.0.1" });
+  s.once("connect", () => { s.destroy(); cb(true); });
+  s.once("error", () => { s.destroy(); cb(false); });
+}
+
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolveBody) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
+  });
+}
+
+async function handleApi(req, res, url) {
+  const path = url.pathname;
+  if (req.method === "GET" && path === "/api/status") {
+    isPortOpen(5173, (ekkoOpen) => {
+      sendJson(res, 200, {
+        ok: true,
+        ekkopbr: ekkoOpen,
+        ekkopbrUrl: "http://127.0.0.1:5173/",
+        ueEditor: existsSync(UE_EDITOR),
+        ueProject: existsSync(UE_PROJECT),
+        projectDir: join(workbenchRoot, "SceneWorkbench"),
+      });
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && path === "/api/split/config") {
+    const cfg = loadConfig();
+    if (!cfg) { sendJson(res, 500, { ok: false, error: "config.json 缺失或损坏" }); return true; }
+    sendJson(res, 200, {
+      ok: true,
+      comfly: { baseUrl: cfg.comfly?.baseUrl, imageModel: cfg.comfly?.imageModel, visionModel: cfg.comfly?.visionModel, imageSize: cfg.comfly?.imageSize, configured: !!(cfg.comfly?.apiKey) },
+      tripo: { baseUrl: cfg.tripo?.baseUrl, model: cfg.tripo?.model, ready: !!(cfg.tripo?.apiKey) && !!cfg.tripo?.ready, textureQuality: cfg.tripo?.textureQuality },
+      prompts: { splitSystem: cfg.prompts?.splitSystem, refineTemplate: cfg.prompts?.refineTemplate },
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && path === "/api/split/config") {
+    const cfg = loadConfig();
+    if (!cfg) { sendJson(res, 500, { ok: false, error: "config.json 缺失或损坏" }); return true; }
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (typeof body.splitSystem === "string" && body.splitSystem.trim()) cfg.prompts.splitSystem = body.splitSystem.trim();
+    if (typeof body.refineTemplate === "string" && body.refineTemplate.trim()) cfg.prompts.refineTemplate = body.refineTemplate.trim();
+    try { writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), "utf8"); }
+    catch (e) { sendJson(res, 500, { ok: false, error: "保存 config.json 失败: " + String(e && e.message || e) }); return true; }
+    sendJson(res, 200, { ok: true, prompts: cfg.prompts });
+    return true;
+  }
+
+  if (req.method === "GET" && path === "/api/mcp/status") {
+    isPortOpen(MCP_PORT, (open) => {
+      sendJson(res, 200, { ok: true, mcpOnline: open, port: MCP_PORT });
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && path === "/api/tripo/status") {
+    const ids = (url.searchParams.get("task_ids") || "").split(",").filter(Boolean).slice(0, 50);
+    if (!ids.length) { sendJson(res, 400, { ok: false, error: "task_ids 为空" }); return true; }
+    tripoQueryTasks(ids).then((results) => sendJson(res, 200, { ok: true, results }))
+      .catch((e) => sendJson(res, 500, { ok: false, error: String(e && e.message || e) }));
+    return true;
+  }
+
+  if (req.method !== "POST") return false;
+
+  if (path === "/api/ekkopbr/start") {
+    if (!existsSync(EKKO_DIST) || !existsSync(join(EKKO_DIST, "index.html"))) {
+      sendJson(res, 500, { ok: false, error: "EkkoPBR 目录不完整" });
+      return true;
+    }
+    const startInject = () => {
+      const child = spawn(process.execPath, [EKKO_INJECT_SERVER, EKKO_DIST, EKKO_INJECT_PID, "5173"], { detached: true, stdio: "ignore", windowsHide: true });
+      child.unref();
+      // 等待 pid 文件出现（最多 8 秒）
+      const t0 = Date.now();
+      const wait = setInterval(() => {
+        if (existsSync(EKKO_INJECT_PID)) {
+          clearInterval(wait);
+          sendJson(res, 200, { ok: true, url: "http://127.0.0.1:5173/" });
+        } else if (Date.now() - t0 > 8000) {
+          clearInterval(wait);
+          sendJson(res, 200, { ok: true, url: "http://127.0.0.1:5173/", note: "启动中，若浏览器未打开请稍候" });
+        }
+      }, 500);
+    };
+    isPortOpen(5173, (open) => {
+      if (!open) { startInject(); return; }
+      // 端口已被占用：若是工作台注入版则视为已启动；否则按端口释放后重启为注入版
+      const pid = existsSync(EKKO_INJECT_PID) ? readFileSync(EKKO_INJECT_PID, "utf8").trim() : "";
+      if (pid && /^\d+$/.test(pid)) {
+        sendJson(res, 200, { ok: true, url: "http://127.0.0.1:5173/" });
+      } else {
+        const ps = "$c = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if($c){ Stop-Process -Id $($c.OwningProcess) -Force -ErrorAction SilentlyContinue }";
+        spawn("powershell.exe", ["-NoProfile", "-Command", ps], { windowsHide: true, stdio: "ignore" })
+          .on("exit", () => { setTimeout(startInject, 800); });
+      }
+    });
+    return true;
+  }
+
+  if (path === "/api/ekkopbr/stop") {
+    let pid = "";
+    if (existsSync(EKKO_INJECT_PID)) pid = readFileSync(EKKO_INJECT_PID, "utf8").trim();
+    const cleanup = () => {
+      try { unlinkSync(EKKO_INJECT_PID); } catch {}
+    };
+    if (pid && /^\d+$/.test(pid)) {
+      spawn("taskkill.exe", ["/PID", pid, "/T", "/F"], { windowsHide: true, stdio: "ignore" })
+        .on("exit", () => { cleanup(); });
+    } else {
+      // 兜底：按端口 5173 查杀监听进程
+      const ps = "$c = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if($c){ Stop-Process -Id $($c.OwningProcess) -Force -ErrorAction SilentlyContinue }";
+      spawn("powershell.exe", ["-NoProfile", "-Command", ps], { windowsHide: true, stdio: "ignore" })
+        .on("exit", () => { cleanup(); });
+    }
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (path === "/api/ue/open") {
+    if (!existsSync(UE_EDITOR) || !existsSync(UE_PROJECT)) {
+      sendJson(res, 500, { ok: false, error: "UE 5.7 或工程不存在" });
+      return true;
+    }
+    spawn(UE_EDITOR, [UE_PROJECT], { detached: true, stdio: "ignore" }).unref();
+    sendJson(res, 200, { ok: true, note: "正在打开 UE 5.7 工程，首次打开请耐心等待" });
+    return true;
+  }
+
+  if (path === "/api/folder/open") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const map = {
+      library: LIBRARY_DIR,
+      textures: TEXTURES_DIR,
+      content: CONTENT_DIR,
+      backup: BACKUP_DIR,
+      download: join(process.env.USERPROFILE || "C:\\Users\\Administrator", "Downloads"),
+      project: join(workbenchRoot, "SceneWorkbench"),
+    };
+    const target = map[body.target];
+    if (!target) { sendJson(res, 400, { ok: false, error: "unknown target" }); return true; }
+    if (!existsSync(target)) { sendJson(res, 500, { ok: false, error: "目录不存在: " + target }); return true; }
+    spawn("explorer.exe", [target], { detached: true, stdio: "ignore" }).unref();
+    sendJson(res, 200, { ok: true, path: target });
+    return true;
+  }
+
+  if (path === "/api/collect") {
+    const ps = join(SCRIPTS_DIR, "collect_textures.ps1");
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps], { windowsHide: true, timeout: 60000 }, (err, stdout, stderr) => {
+      sendJson(res, err ? 500 : 200, { ok: !err, output: (stdout || "") + (stderr || "") });
+    });
+    return true;
+  }
+
+  if (path === "/api/backup") {
+    const ps = join(SCRIPTS_DIR, "backup_project.ps1");
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps], { windowsHide: true, timeout: 120000 }, (err, stdout, stderr) => {
+      sendJson(res, err ? 500 : 200, { ok: !err, output: (stdout || "") + (stderr || "") });
+    });
+    return true;
+  }
+
+  // ===== 单模型拆分流程 =====
+  if (path === "/api/split/ai") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const system = body.promptTemplate || cfg.prompts?.splitSystem;
+    const imageInput = body.imageData || body.imageUrl;
+    if (!imageInput) { sendJson(res, 400, { ok: false, error: "缺少参考图" }); return true; }
+    try {
+      const items = await comflySplit(cfg, system, imageInput);
+      sendJson(res, 200, { ok: true, items });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === "/api/refine") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) { sendJson(res, 400, { ok: false, error: "items 为空" }); return true; }
+    const template = body.template || cfg.prompts?.refineTemplate;
+    try {
+      const results = await refineItems(cfg, items, template);
+      sendJson(res, 200, { ok: true, results });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === "/api/tripo/upload") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.tripo?.apiKey) { sendJson(res, 500, { ok: false, error: "Tripo API 未配置" }); return true; }
+    if (cfg.tripo.ready === false) { sendJson(res, 200, { ok: false, error: "Tripo API key 尚未通过验证（config.json tripo.ready=false），请更新 key 后重启工作台" }); return true; }
+    const filePath = body.imagePath;
+    if (!filePath || !existsSync(filePath)) { sendJson(res, 400, { ok: false, error: "图片路径不存在" }); return true; }
+    try {
+      const token = await tripoUpload(cfg, filePath);
+      sendJson(res, 200, { ok: true, fileToken: token });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === "/api/tripo/generate") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.tripo?.apiKey) { sendJson(res, 500, { ok: false, error: "Tripo API 未配置" }); return true; }
+    if (cfg.tripo.ready === false) { sendJson(res, 200, { ok: false, error: "Tripo API key 尚未通过验证（config.json tripo.ready=false），请更新 key 后重启工作台" }); return true; }
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) { sendJson(res, 400, { ok: false, error: "items 为空" }); return true; }
+    try {
+      const results = await tripoCreateTasks(cfg, items, body);
+      sendJson(res, 200, { ok: true, results });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === "/api/tripo/download") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) { sendJson(res, 400, { ok: false, error: "items 为空" }); return true; }
+    try {
+      const results = await tripoDownload(items);
+      sendJson(res, 200, { ok: true, results });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === "/api/import") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) { sendJson(res, 400, { ok: false, error: "items 为空" }); return true; }
+    try {
+      const results = await importToUnreal(items, body);
+      sendJson(res, 200, { ok: true, results });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function serve(request, response) {
+  const url = new URL(request.url, "http://127.0.0.1");
+  if (url.pathname.startsWith("/api/")) {
+    handleApi(request, response, url).catch(() => sendJson(response, 500, { ok: false, error: "api error" }));
+    return;
+  }
+  let filePath;
+  try { filePath = safePath(url.pathname); } catch { response.writeHead(400); response.end("Bad request"); return; }
+  if (!filePath || !existsSync(filePath)) { filePath = join(wwwRoot, "index.html"); }
+  try {
+    const body = readFileSync(filePath);
+    response.writeHead(200, { "Content-Type": mimeTypes[extname(filePath).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-cache" });
+    response.end(body);
+  } catch { response.writeHead(404); response.end("Not found"); }
+}
+
+function cleanup() {
+  for (const file of [portFile, pidFile]) { try { unlinkSync(file); } catch {} }
+}
+
+// ===== 单模型拆分 · helper =====
+function saveBase64Image(dataUrl, filePath) {
+  const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || "");
+  if (!m) throw new Error("图片格式不是 base64 data URL");
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, Buffer.from(m[2], "base64"));
+  return filePath;
+}
+
+async function downloadUrlToFile(url, filePath) {
+  const r = await fetch(url, { timeout: 120000 });
+  if (!r.ok) throw new Error("下载失败 HTTP " + r.status + " " + url);
+  const buf = Buffer.from(await r.arrayBuffer());
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, buf);
+  return filePath;
+}
+
+function extractJsonArray(text) {
+  if (!text) throw new Error("AI 未返回内容");
+  let t = String(text).trim();
+  t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const start = t.indexOf("[");
+  const end = t.lastIndexOf("]");
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  const arr = JSON.parse(t);
+  if (!Array.isArray(arr)) throw new Error("AI 返回的不是数组");
+  return arr;
+}
+
+async function comflySplit(cfg, systemPrompt, imageInput) {
+  const body = {
+    model: cfg.comfly.visionModel || "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: [
+        { type: "text", text: "请分析这张场景参考图，按系统要求输出拆分清单。" },
+        { type: "image_url", image_url: { url: imageInput } },
+      ]},
+    ],
+    max_tokens: 3000,
+  };
+  const r = await fetch(cfg.comfly.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 反推失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
+  const text = j.choices?.[0]?.message?.content || "";
+  const raw = extractJsonArray(text);
+  return raw.map((x, i) => {
+    let bbox = null;
+    if (Array.isArray(x.bbox) && x.bbox.length === 4) {
+      const b = x.bbox.map(Number);
+      if (b.every(Number.isFinite)) bbox = b.map((v) => Math.max(0, Math.min(1000, v)));
+    } else if (typeof x.bbox === "string") {
+      const nums = (x.bbox.match(/-?\d+(\.\d+)?/g) || []).map(Number).slice(0, 4);
+      if (nums.length === 4 && nums.every(Number.isFinite)) bbox = nums.map((v) => Math.max(0, Math.min(1000, v)));
+    }
+    return {
+      id: "item_" + Date.now() + "_" + i,
+      name: String(x.name || ("资产" + (i + 1))),
+      prompt: String(x.prompt || ""),
+      category: String(x.category || "其他"),
+      bbox,
+    };
+  });
+}
+
+async function comflyEdits(cfg, imagePath, prompt) {
+  const form = new FormData();
+  form.append("model", cfg.comfly.imageModel || "gpt-image-2");
+  form.append("prompt", prompt);
+  form.append("size", cfg.comfly.imageSize || "1024x1024");
+  form.append("n", "1");
+  const buf = readFileSync(imagePath);
+  form.append("image", new Blob([buf], { type: "image/png" }), "ref.png");
+  const r = await fetch(cfg.comfly.baseUrl + "/images/edits", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + cfg.comfly.apiKey },
+    body: form,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 细化失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
+  const url = j.data?.[0]?.url;
+  if (!url) throw new Error("comfly 细化未返回图片 URL");
+  return url;
+}
+
+async function refineItems(cfg, items, template) {
+  mkdirSync(TMP_DIR, { recursive: true });
+  const results = [];
+  for (const it of items) {
+    const name = sanitizeName(it.name);
+    const tmpImg = join(TMP_DIR, "refine_src_" + name + "_" + Date.now() + ".png");
+    try {
+      if (it.imageData) saveBase64Image(it.imageData, tmpImg);
+      else if (it.imagePath && existsSync(it.imagePath)) { mkdirSync(TMP_DIR, { recursive: true }); writeFileSync(tmpImg, readFileSync(it.imagePath)); }
+      else { results.push({ id: it.id, name: it.name, status: "error", error: "缺少细化源图" }); continue; }
+      const url = await comflyEdits(cfg, tmpImg, template || cfg.prompts?.refineTemplate);
+      const dest = join(MODEL_ROOT, name, "refined.png");
+      await downloadUrlToFile(url, dest);
+      results.push({ id: it.id, name: it.name, status: "ok", path: dest, url });
+    } catch (e) {
+      results.push({ id: it.id, name: it.name, status: "error", error: String(e && e.message || e) });
+    }
+  }
+  return results;
+}
+
+async function tripoUpload(cfg, filePath) {
+  const buf = readFileSync(filePath);
+  const form = new FormData();
+  form.append("file", new Blob([buf], { type: "image/png" }), "ref.png");
+  // v3 上传接口（文档编写中），失败回退 v2
+  const tries = [
+    { url: cfg.tripo.baseUrl + "/files/upload", name: "v3/files/upload" },
+    { url: "https://api.tripo3d.com/v2/openapi/upload", name: "v2/openapi/upload" },
+  ];
+  for (const t of tries) {
+    try {
+      const r = await fetch(t.url, { method: "POST", headers: { Authorization: "Bearer " + cfg.tripo.apiKey }, body: form });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && (j.data?.file_token || j.data?.file_token_id)) {
+        return j.data.file_token || j.data.file_token_id;
+      }
+      if (r.status === 401) throw new Error("Tripo API key 无效（401），请在 config.json 更新 tripo.apiKey");
+      if (r.status === 404 || r.status === 405) continue; // 接口不存在 → 试下一个
+      throw new Error("Tripo 上传失败 " + t.name + " HTTP " + r.status + ": " + (j.message || JSON.stringify(j).slice(0, 200)));
+    } catch (e) {
+      if (/401|API key/.test(String(e.message))) throw e;
+      if (/404|405|接口不存在/.test(String(e.message))) continue;
+      throw e;
+    }
+  }
+  throw new Error("Tripo 上传接口不可用（v3/v2 均失败），请确认 tripo.baseUrl 或改用公网图片 URL");
+}
+
+async function tripoCreateTasks(cfg, items, opts) {
+  const results = [];
+  for (const it of items) {
+    let input = it.fileToken || it.imageUrl;
+    if (!input) {
+      // 自动定位本地细化图：Assets\Models\<name>\refined.png（无则取该目录下任意 png）
+      const name = sanitizeName(it.name);
+      const dir = join(MODEL_ROOT, name);
+      let src = join(dir, "refined.png");
+      if (!existsSync(src) && existsSync(dir)) {
+        const cands = readdirSync(dir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f));
+        src = cands.length ? join(dir, cands[0]) : null;
+      }
+      if (src && existsSync(src)) {
+        try { input = await tripoUpload(cfg, src); }
+        catch (e) { results.push({ id: it.id, name: it.name, status: "error", error: "上传参考图失败: " + String(e && e.message || e) }); continue; }
+      }
+    }
+    if (!input) { results.push({ id: it.id, name: it.name, status: "error", error: "缺少输入图（请先完成步骤2 高清细化）" }); continue; }
+    const body = {
+      input,
+      model: opts.model || cfg.tripo.model,
+      texture: true,
+      pbr: cfg.tripo.pbr !== false,
+      face_limit: opts.faceLimit || cfg.tripo.faceLimit,
+      texture_quality: opts.textureQuality || cfg.tripo.textureQuality || "standard",
+    };
+    try {
+      const r = await fetch(cfg.tripo.baseUrl + "/generation/image-to-model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.tripo.apiKey },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.code !== 0) throw new Error("Tripo 建任务失败 HTTP " + r.status + ": " + (j.message || JSON.stringify(j).slice(0, 200)));
+      results.push({ id: it.id, name: it.name, status: "queued", task_id: j.data?.task_id });
+    } catch (e) {
+      results.push({ id: it.id, name: it.name, status: "error", error: String(e && e.message || e) });
+    }
+  }
+  return results;
+}
+
+async function tripoQueryTasks(ids) {
+  const cfg = loadConfig();
+  if (!cfg || !cfg.tripo?.apiKey) throw new Error("Tripo API 未配置");
+  const results = [];
+  for (const tid of ids) {
+    try {
+      const r = await fetch(cfg.tripo.baseUrl + "/tasks/" + encodeURIComponent(tid), {
+        headers: { Authorization: "Bearer " + cfg.tripo.apiKey },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.code !== 0) { results.push({ task_id: tid, status: "error", error: (j.message || "HTTP " + r.status) }); continue; }
+      const d = j.data || {};
+      results.push({
+        task_id: tid,
+        status: d.status,
+        progress: d.progress,
+        error_message: d.error_message,
+        model_url: d.output?.model_url,
+        rendered_image_url: d.output?.rendered_image_url,
+        credits_consumed: d.credits_consumed,
+      });
+    } catch (e) {
+      results.push({ task_id: tid, status: "error", error: String(e && e.message || e) });
+    }
+  }
+  return results;
+}
+
+async function tripoDownload(items) {
+  const results = [];
+  for (const it of items) {
+    try {
+      const q = await tripoQueryTasks([it.task_id]);
+      const d = q[0];
+      if (!d || d.status !== "success") { results.push({ id: it.id, name: it.name, status: d?.status || "error", error: d?.error_message || "任务未完成" }); continue; }
+      const name = sanitizeName(it.name);
+      const cat = sanitizeName(it.category || "其他");
+      const glbPath = join(MODEL_ROOT, name, name + ".glb");
+      await downloadUrlToFile(d.model_url, glbPath);
+      let previewPath = null;
+      if (d.rendered_image_url) { previewPath = join(MODEL_ROOT, name, "preview.png"); await downloadUrlToFile(d.rendered_image_url, previewPath); }
+      // 归位到工程 Content
+      const contentPath = join(CONTENT_MESHES, cat, name, name + ".glb");
+      mkdirSync(dirname(contentPath), { recursive: true });
+      writeFileSync(contentPath, readFileSync(glbPath));
+      results.push({ id: it.id, name: it.name, status: "ok", glbPath, previewPath, contentPath });
+    } catch (e) {
+      results.push({ id: it.id, name: it.name, status: "error", error: String(e && e.message || e) });
+    }
+  }
+  return results;
+}
+
+function mcpCall(toolName, args, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    if (!existsSync(MCP_PYTHON) || !existsSync(MCP_SERVER_PY)) { reject(new Error("UnrealMCP Server 未找到")); return; }
+    const child = spawn(MCP_PYTHON, [MCP_SERVER_PY], {
+      env: { ...process.env, DYNAMIC_MODE: "1", ENABLED_MODULES: "editor,asset,import" },
+      windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
+    });
+    let buf = "";
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; child.kill(); reject(new Error("MCP 调用超时")); } }, timeoutMs);
+    child.stdout.on("data", (d) => {
+      buf += d.toString("utf8");
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+        if (!line.trim()) continue;
+        let msg; try { msg = JSON.parse(line); } catch { continue; }
+        if (msg.id === "init") {
+          child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+          child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: "call", method: "tools/call", params: { name: toolName, arguments: args } }) + "\n");
+        } else if (msg.id === "call") {
+          clearTimeout(timer);
+          if (done) return; done = true;
+          child.stdin.end();
+          setTimeout(() => { try { child.kill(); } catch {} }, 500);
+          if (msg.error) reject(new Error("MCP 工具错误: " + JSON.stringify(msg.error)));
+          else resolve(msg.result);
+        }
+      }
+    });
+    child.stderr.on("data", () => {});
+    child.on("exit", () => { if (!done) { done = true; clearTimeout(timer); reject(new Error("MCP 进程提前退出")); } });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: "init", method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ue-workbench", version: "1.0" } } }) + "\n");
+  });
+}
+
+async function importToUnreal(items, opts) {
+  // 一期通道：模型落盘归位 + 生成 UE 编辑器导入脚本（不依赖 MCP 工具，C++ 插件暂无资产导入命令）
+  const staged = [];
+  const online = await new Promise((r) => isPortOpen(MCP_PORT, r));
+  for (const it of items) {
+    const name = sanitizeName(it.name);
+    const cat = sanitizeName(it.category || "其他");
+    const srcGlb = join(MODEL_ROOT, name, name + ".glb");
+    const contentPath = join(CONTENT_MESHES, cat, name, name + ".glb");
+    if (!existsSync(srcGlb) && !existsSync(contentPath)) {
+      staged.push({ id: it.id, name: it.name, status: "missing", error: "模型文件不存在（请先完成 Tripo 下载）" });
+      continue;
+    }
+    mkdirSync(dirname(contentPath), { recursive: true });
+    if (existsSync(srcGlb)) writeFileSync(contentPath, readFileSync(srcGlb));
+    staged.push({ id: it.id, name: it.name, category: cat, status: "staged", contentPath });
+  }
+  // 生成幂等导入脚本（编辑器 Python：批量导入 glb → 放置到关卡 → Outliner 归位）
+  const scriptPath = join(workbenchRoot, "SceneWorkbench", "Content", "Python", "import_models.py");
+  const ready = staged.filter((s) => s.status === "staged");
+  const rows = ready.map((s) => `    {"name": ${JSON.stringify(s.name)}, "category": ${JSON.stringify(s.category)}, "location": [${opts.location || "0.0, 0.0, 0.0"}]},`).join("\n");
+  const script = `# -*- coding: utf-8 -*-
+"""由 UE 工作台生成：批量导入 glb 模型并放入当前关卡（幂等）。
+在 UE 编辑器内执行：打开 Output Log -> Cmd 切到 Python -> py "${scriptPath.replace(/\\/g, "/")}"
+"""
+import unreal
+
+MODELS = [
+${rows}
+]
+DEST_ROOT = "/Game/Assets/Meshes"
+
+def main():
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    editor = unreal.EditorLevelLibrary
+    imported = []
+    for m in MODELS:
+        name = m["name"]; cat = m["category"]; loc = unreal.Vector(*m["location"])
+        src = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_content_dir()) + "Assets/Meshes/" + cat + "/" + name + "/" + name + ".glb"
+        if not unreal.Paths.file_exists(src):
+            unreal.log_warning("[import_models] 文件不存在，跳过: " + src); continue
+        dest = DEST_ROOT + "/" + cat + "/" + name
+        unreal.EditorAssetLibrary.make_directory(dest)
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", src)
+        task.set_editor_property("destination_path", dest)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("save", True)
+        tools.import_asset_tasks([task])
+        paths = task.get_editor_property("imported_object_paths")
+        if not paths:
+            unreal.log_warning("[import_models] 导入无结果: " + name); continue
+        asset_path = paths[0]
+        actor = editor.spawn_actor_from_class(unreal.StaticMeshActor, loc, unreal.Rotator(0, 0, 0))
+        actor.set_actor_label(name)
+        sm = actor.static_mesh_component
+        sm.set_static_mesh(unreal.load_asset(asset_path))
+        actor.set_folder_path(cat)
+        imported.append(name)
+        unreal.log("[import_models] OK: " + name + " -> " + asset_path)
+    editor.save_current_level()
+    unreal.log("[import_models] 完成，共导入 " + str(len(imported)) + " 个模型: " + ", ".join(imported))
+
+if __name__ == "__main__":
+    main()
+`;
+  mkdirSync(dirname(scriptPath), { recursive: true });
+  writeFileSync(scriptPath, script, "utf8");
+  return {
+    mode: "staged",
+    note: "模型已归位到工程 Content\\Assets\\Meshes（自动命名+分类）。UE 编辑器打开后，运行 Content\\Python\\import_models.py 即可批量导入并放入关卡（Outliner 按类别归位）。",
+    mcpOnline: online,
+    scriptPath,
+    items: staged,
+  };
+}
+
+function listen(port) {
+  const server = createServer(serve);
+  server.once("error", (error) => {
+    if (error.code === "EADDRINUSE" && port < startPort + 20) { listen(port + 1); return; }
+    console.error(error); cleanup(); process.exit(1);
+  });
+  server.listen(port, "127.0.0.1", () => {
+    writeFileSync(portFile, String(port), "utf8");
+    writeFileSync(pidFile, String(process.pid), "utf8");
+    console.log(`UE场景制作工作台运行中: http://127.0.0.1:${port}/`);
+  });
+}
+
+process.on("SIGINT", () => { cleanup(); process.exit(0); });
+process.on("SIGTERM", () => { cleanup(); process.exit(0); });
+listen(startPort);

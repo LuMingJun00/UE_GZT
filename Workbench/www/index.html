@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE 场景制作工作台</title>
+<style>
+  :root{
+    --bg:#14171c; --panel:#1e232a; --panel2:#262d36; --line:#333b47;
+    --txt:#eef1f5; --sub:#9aa7b4; --dim:#6d7a88;
+    --ue:#f97316; --ue-soft:#ffb37a; --teal:#2dd4bf; --teal-soft:#a7f3d0;
+    --blue:#60a5fa; --red:#f87171; --green:#34d399;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:"Microsoft YaHei","Segoe UI",sans-serif;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .logo{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#f97316,#fb923c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#14171c}
+  h1{font-size:22px;font-weight:700}
+  .subtitle{color:var(--sub);font-size:13px;margin-top:3px}
+  .status{display:flex;gap:10px;flex-wrap:wrap}
+  .chip{padding:7px 14px;border-radius:20px;font-size:12.5px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);display:flex;align-items:center;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .dot.off{background:var(--red)}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px}
+  .card .icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:2px}
+  .card h2{font-size:15.5px;font-weight:700}
+  .card p{font-size:12.5px;color:var(--sub);line-height:1.55}
+  .btn{margin-top:auto;padding:11px 0;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;color:#14171c;background:var(--ue);transition:filter .15s,transform .05s}
+  .btn:hover{filter:brightness(1.1)}
+  .btn:active{transform:scale(.98)}
+  .btn.teal{background:var(--teal)}
+  .btn.ghost{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+  .btn.small{padding:9px 0;font-size:13px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .section{margin-bottom:22px}
+  .section h3{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .section h3::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--ue)}
+  .steps{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 12px;text-align:center}
+  .step .n{width:26px;height:26px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);color:var(--ue-soft);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;margin:0 auto 9px}
+  .step .t{font-size:13px;font-weight:700;margin-bottom:5px}
+  .step .d{font-size:11.5px;color:var(--sub);line-height:1.45}
+
+  .tools{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+  .mini{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:9px 16px;border-radius:9px;font-size:13px;cursor:pointer}
+  .mini:hover{border-color:var(--teal)}
+  .out{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--sub);white-space:pre-wrap;line-height:1.6;min-height:44px}
+  .note{background:#241b14;border:1px solid #4a2f1b;color:#ffd9b8;border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.6}
+  .foot{color:var(--dim);font-size:11.5px;text-align:center;margin-top:26px;line-height:1.7}
+
+  .tabs{display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:10px}
+  .tab{background:var(--panel2);border:1px solid var(--line);color:var(--sub);padding:9px 20px;border-radius:9px;font-size:13.5px;font-weight:700;cursor:pointer;transition:filter .15s}
+  .tab:hover{filter:brightness(1.12)}
+  .tab.on{background:var(--ue);color:#14171c;border-color:var(--ue)}
+  .sp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  .sp h3{font-size:15px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .sp h3::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--ue)}
+  .upzone{border:2px dashed var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--sub);font-size:13px;cursor:pointer;margin-bottom:12px;transition:border-color .15s,color .15s}
+  .upzone.drag{border-color:var(--teal);color:var(--teal)}
+  .uztip{font-size:13px;text-align:center;line-height:1.7;min-height:90px;display:flex;align-items:center;justify-content:center;color:var(--sub)}
+  .uztip.has{font-size:12px;color:var(--dim);min-height:auto;line-height:1.5;margin-top:2px}
+  .canvaswrap{position:relative;margin-bottom:12px}
+  canvas#splitCanvas{width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;display:block;background:#0d1014;cursor:crosshair}
+  #thumbOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}
+  #thumbOverlay.on{display:flex}
+  #thumbFull{max-width:86vw;max-height:86vh;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0d1014;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  .toolrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
+  .chk input{accent-color:var(--teal)}
+  .tblwrap{overflow-x:auto}
+  table.mlist{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}
+  table.mlist th,table.mlist td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:middle}
+  table.mlist th{background:var(--panel2);color:var(--sub);font-weight:700;white-space:nowrap}
+  .mthumb{width:52px;height:52px;object-fit:contain;border-radius:6px;border:1px solid var(--line);background:#0d1014;display:block;cursor:pointer}
+  .minp{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 8px;font-size:12.5px;width:100%;box-sizing:border-box}
+  .mcat{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 6px;font-size:12px}
+  .st{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .st.queued{background:#3b2f10;color:#fbbf24}.st.running{background:#12233d;color:#60a5fa}.st.ok{background:#0e2a22;color:#34d399}.st.error{background:#3b1212;color:#f87171}.st.idle{background:var(--panel2);color:var(--dim)}
+  .progress{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:4px}
+  .progress>div{height:100%;background:var(--teal);width:0%;transition:width .4s}
+  .note2{background:#241b14;border:1px solid #4a2f1b;color:#ffd9b8;border-radius:10px;padding:10px 13px;font-size:12.5px;line-height:1.6;margin-top:10px}
+  .empty{color:var(--dim);font-size:12.5px;text-align:center;padding:18px 0}
+  .kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--teal-soft)}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">UE</div>
+      <div>
+        <h1>UE 场景制作工作台</h1>
+        <div class="subtitle">SceneWorkbench · UE 5.7 · 贴图 EkkoPBR · 本地一体化</div>
+      </div>
+    </div>
+    <div class="status">
+      <div class="chip"><span class="dot" id="dEkko"></span><span>贴图工具 <b id="tEkko">检测中</b></span></div>
+      <div class="chip"><span class="dot on"></span><span>引擎 UE 5.7</span></div>
+      <div class="chip"><span class="dot on"></span><span>工程 SceneWorkbench</span></div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab on" id="tabFlow">贴图制作流程</button>
+    <button class="tab" id="tabSplit">单模型拆分流程</button>
+  </div>
+
+  <div id="flowView">
+  <div class="grid">
+    <div class="card">
+      <div class="icon">🖌️</div>
+      <h2>贴图工具 EkkoPBR</h2>
+      <p>启动/停止本机贴图生成服务（127.0.0.1:5173）。可生成 BaseColor / Normal / Roughness / Metalness / Height / AO 六通道无缝贴图。<b>拖入贴图：把 JPG / PNG / WebP 直接拖到 EkkoPBR 页面的材质预览窗口（预览球区域），即自动导入「输入源」。</b></p>
+      <button class="btn" id="btnEkko">启动贴图工具</button>
+    </div>
+    <div class="card">
+      <div class="icon">🎮</div>
+      <h2>打开 UE 工程</h2>
+      <p>用 UE 5.7 打开内置工程 SceneWorkbench。贴图放入 Content 后会自动导入；模型用 Content Browser 拖入。</p>
+      <button class="btn teal" id="btnUe">打开 UE 5.7 工程</button>
+    </div>
+    <div class="card">
+      <div class="icon">📁</div>
+      <h2>素材库 / 输出目录</h2>
+      <p>模型、贴图、HDRI、音效统一收纳区。EkkoPBR 导出贴图经「收纳入库」自动归位到这里。</p>
+      <button class="btn ghost small" id="btnLib">打开素材库</button>
+      <button class="btn ghost small" id="btnTex">打开贴图目录</button>
+    </div>
+    <div class="card">
+      <div class="icon">🗂️</div>
+      <h2>收纳入库 / 快照备份</h2>
+      <p>把下载目录中 EkkoPBR 导出的贴图按命名规范归位；或将工程 Content+Config 打包为带日期 ZIP 快照。</p>
+      <button class="btn ghost small" id="btnCollect">收纳入库（从下载目录）</button>
+      <button class="btn ghost small" id="btnBackup">快照备份工程</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>贴图制作 · 标准工作流</h3>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div class="t">启动控制台</div><div class="d">一键拉起 EkkoPBR</div></div>
+      <div class="step"><div class="n">2</div><div class="t">拖入贴图</div><div class="d">拖到预览窗口导入输入源</div></div>
+      <div class="step"><div class="n">3</div><div class="t">浏览器导出</div><div class="d">下载 6 通道贴图</div></div>
+      <div class="step"><div class="n">4</div><div class="t">收纳入库</div><div class="d">归位到 Assets\Textures</div></div>
+      <div class="step"><div class="n">5</div><div class="t">导入 UE 工程</div><div class="d">放入 Content 自动导入</div></div>
+      <div class="step"><div class="n">6</div><div class="t">材质预览</div><div class="d">展台预览与微调</div></div>
+    </div>
+  </div>
+
+  <div class="tools">
+    <button class="mini" data-folder="content">打开工程 Content 目录</button>
+    <button class="mini" data-folder="project">打开工程根目录</button>
+    <button class="mini" data-folder="download">打开浏览器下载目录</button>
+    <button class="mini" data-folder="backup">打开备份目录</button>
+  </div>
+
+  <div class="section">
+    <h3>运行日志</h3>
+    <div class="out" id="log">就绪。</div>
+  </div>
+
+  <div class="note">
+    ⚠️ 硬约束：本工作台只调用 UE 5.7 引擎（C:\Program Files\UE\UE_5.7）只读运行，<b>不修改任何引擎源文件</b>；EkkoPBR 工具原样调用（由工作台在 5173 托管并提供「拖拽导入输入源」增强，不改动工具本体文件）。
+  </div>
+  </div><!-- /flowView -->
+
+  <div id="splitView" style="display:none">
+    <div class="sp">
+      <h3>① 场景资产拆分 <span style="color:var(--dim);font-size:12px;font-weight:400">参考图 → 独立模型资产清单（AI 反推 / 手动框选）</span></h3>
+      <div class="upzone" id="splitZone">
+        <canvas id="splitCanvas" width="720" height="405" style="display:none"></canvas>
+        <div class="uztip" id="splitZoneTip">点击或拖拽参考图到此处<br>（支持 JPG / PNG / WebP）</div>
+      </div>
+      <input type="file" id="splitFile" accept="image/*" style="display:none">
+      <div class="toolrow">
+        <label class="chk"><input type="radio" name="splitMode" value="ai" checked> AI 自动识别</label>
+        <label class="chk"><input type="radio" name="splitMode" value="manual"> 手动框选</label>
+        <button class="btn small" id="btnAiSplit" style="width:auto;padding:9px 16px">AI 反推拆分</button>
+        <button class="mini" id="btnClearCrop">清除框选</button>
+        <button class="mini" id="btnLoadImg">重新上传</button>
+        <span style="color:var(--dim);font-size:12px">手动模式：在画布上拖出物体框，松开后命名入清单</span>
+      </div>
+      <details style="margin-bottom:12px">
+        <summary style="cursor:pointer;color:var(--sub);font-size:12.5px;margin-bottom:8px">提示词模板（固化，可编辑后保存至 config.json）</summary>
+        <textarea id="splitPrompt" class="minp" rows="5"></textarea>
+        <textarea id="refinePrompt" class="minp" rows="2" style="margin-top:6px"></textarea>
+        <div class="toolrow" style="margin-top:8px">
+          <button class="mini" id="btnSavePrompts">保存模板至 config.json</button>
+          <span style="color:var(--dim);font-size:12px">AI 拆分与高清重绘将使用保存后的模板</span>
+        </div>
+      </details>
+      <h3 style="font-size:13.5px;color:var(--sub);margin:12px 0 8px">拆分清单（<span id="itemCount">0</span> 项）</h3>
+      <div class="tblwrap">
+        <table class="mlist" id="itemTable">
+          <thead><tr>
+            <th style="width:30px"><input type="checkbox" id="chkAll" checked></th>
+            <th style="width:64px">缩略图</th><th style="width:120px">名称</th><th style="width:90px">类别</th>
+            <th>建模描述 prompt</th><th style="width:90px">② 细化</th><th style="width:90px">③ Tripo</th>
+            <th style="width:110px">状态</th><th style="width:52px">操作</th>
+          </tr></thead>
+          <tbody id="itemBody"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="itemEmpty">尚无资产。上传参考图后点「AI 反推拆分」，或在画布上手动框选。</div>
+    </div>
+
+    <div class="sp">
+      <h3>② 资产高清细化</h3>
+      <div class="toolrow">
+        <button class="btn teal" id="btnRefine" style="width:auto;padding:9px 16px">批量高清重绘勾选项</button>
+        <span style="color:var(--dim);font-size:12px">comfly gpt-image-2 · 输出高分辨率细化参考图 → Assets\Models\名称\refined.png</span>
+      </div>
+      <div class="out" id="refineLog" style="min-height:28px">待执行。</div>
+    </div>
+
+    <div class="sp">
+      <h3>③ AI 建模批量生成 <span id="tripoChip" class="st idle">Tripo 检测中</span></h3>
+      <div class="toolrow">
+        <button class="btn" id="btnTripo" style="width:auto;padding:9px 16px">批量生成 3D 模型（Tripo）</button>
+        <button class="btn ghost small" id="btnTripoDl" style="width:auto;padding:9px 16px">下载已完成模型</button>
+        <span style="color:var(--dim);font-size:12px">图生 3D · PBR 材质 · 异步任务自动轮询</span>
+      </div>
+      <div class="out" id="tripoLog" style="min-height:28px">待执行。</div>
+    </div>
+
+    <div class="sp">
+      <h3>④ 模型减面处理 <span class="st idle">暂缓</span></h3>
+      <div class="note2">Houdini 减面脚本将独立为在线工具，页面内滑块实时调节减面比例、实时预览效果。<b>当前阶段暂缓</b>，预留接入位；先用 Tripo 的 face_limit 参数控制模型面数（默认 5000）。</div>
+    </div>
+
+    <div class="sp">
+      <h3>⑤ 批量导入与场景整理 <span id="mcpChip" class="st idle">MCP 检测中</span></h3>
+      <div class="toolrow">
+        <button class="btn teal" id="btnImport" style="width:auto;padding:9px 16px">批量导入勾选项</button>
+        <span style="color:var(--dim);font-size:12px">自动归位 + 命名整理 → Content\Assets\Meshes\类别\名称\，并生成 import_models.py 一键导入关卡</span>
+      </div>
+      <div class="out" id="importLog" style="min-height:28px">待执行。</div>
+    </div>
+  </div><!-- /splitView -->
+
+  <div class="foot">UE 场景制作工作台 v1.1 · 本地服务 http://127.0.0.1:5360 · 数据均在 E:\00_AI\UE_GZT 下</div>
+</div>
+
+<div id="thumbOverlay"><img id="thumbFull" alt=""></div>
+<script>
+(function(){
+  var logEl = document.getElementById('log');
+  var btnEkko = document.getElementById('btnEkko');
+  var dEkko = document.getElementById('dEkko');
+  var tEkko = document.getElementById('tEkko');
+
+  function log(msg){ logEl.textContent = msg + '\n' + logEl.textContent.split('\n').slice(0,19).join('\n'); }
+
+  function api(path, opts){
+    return fetch(path, opts || {}).then(function(r){ return r.json(); });
+  }
+
+  function busy(btn, text, disabled){
+    if(!btn) return;
+    btn.dataset.old = btn.textContent;
+    btn.textContent = text || '处理中…';
+    btn.disabled = !!disabled;
+  }
+  function idle(btn){
+    if(!btn) return;
+    btn.textContent = btn.dataset.old || btn.textContent;
+    btn.disabled = false;
+  }
+
+  function refreshStatus(){
+    api('/api/status').then(function(s){
+      if(s.ok){
+        dEkko.className = 'dot ' + (s.ekkopbr ? 'on' : 'off');
+        tEkko.textContent = s.ekkopbr ? '运行中' : '未运行';
+        btnEkko.textContent = s.ekkopbr ? '停止贴图工具' : '启动贴图工具';
+        btnEkko.dataset.mode = s.ekkopbr ? 'stop' : 'start';
+      }
+    }).catch(function(){});
+  }
+
+  btnEkko.addEventListener('click', function(){
+    var mode = btnEkko.dataset.mode || 'start';
+    busy(btnEkko, mode === 'start' ? '正在启动…' : '正在停止…', true);
+    api('/api/ekkopbr/' + mode, {method:'POST'}).then(function(r){
+      log((mode === 'start' ? 'EkkoPBR 启动：' : 'EkkoPBR 停止：') + (r.url || r.note || '完成'));
+      if(mode === 'start' && r.url){ setTimeout(function(){ window.open(r.url, '_blank'); }, 600); }
+      refreshStatus();
+      idle(btnEkko);
+    }).catch(function(e){ log('操作失败：' + e); idle(btnEkko); });
+  });
+
+  document.getElementById('btnUe').addEventListener('click', function(){
+    var b = this; busy(b, '正在打开 UE…', true);
+    api('/api/ue/open', {method:'POST'}).then(function(r){
+      log(r.note || '已请求打开 UE 工程');
+      setTimeout(function(){ idle(b); refreshStatus(); }, 1500);
+    }).catch(function(e){ log('打开失败：' + e); idle(b); });
+  });
+
+  document.getElementById('btnLib').addEventListener('click', function(){ openFolder('library'); });
+  document.getElementById('btnTex').addEventListener('click', function(){ openFolder('textures'); });
+  document.querySelectorAll('.mini').forEach(function(el){
+    el.addEventListener('click', function(){ openFolder(el.dataset.folder); });
+  });
+  function openFolder(target){
+    api('/api/folder/open', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target:target})})
+      .then(function(r){ log(r.path || '已打开'); }).catch(function(e){ log('打开失败：' + e); });
+  }
+
+  document.getElementById('btnCollect').addEventListener('click', function(){
+    var b = this; busy(b, '收集中…', true); log('开始收纳入库（扫描下载目录近 12 小时 PBR 贴图）…');
+    api('/api/collect', {method:'POST'}).then(function(r){
+      log(r.output || '完成'); idle(b);
+    }).catch(function(e){ log('收集失败：' + e); idle(b); });
+  });
+
+  document.getElementById('btnBackup').addEventListener('click', function(){
+    var b = this; busy(b, '备份中…', true); log('开始快照备份（Content + Config）…');
+    api('/api/backup', {method:'POST'}).then(function(r){
+      log(r.output || '完成'); idle(b);
+    }).catch(function(e){ log('备份失败：' + e); idle(b); });
+  });
+
+  refreshStatus();
+  setInterval(refreshStatus, 8000);
+})();
+
+(function(){
+  // ===== 单模型拆分流程 =====
+  var flowView = document.getElementById('flowView');
+  var splitView = document.getElementById('splitView');
+  var tabFlow = document.getElementById('tabFlow');
+  var tabSplit = document.getElementById('tabSplit');
+  function switchTab(name){
+    var flow = name === 'flow';
+    tabFlow.classList.toggle('on', flow);
+    tabSplit.classList.toggle('on', !flow);
+    flowView.style.display = flow ? '' : 'none';
+    splitView.style.display = flow ? 'none' : '';
+  }
+  tabFlow.addEventListener('click', function(){ switchTab('flow'); });
+  tabSplit.addEventListener('click', function(){ switchTab('split'); });
+
+  var items = [];
+  var canvas = document.getElementById('splitCanvas');
+  var cctx = canvas.getContext('2d');
+  var baseImg = null, sel = null, drawing = false;
+
+  function sLog(id, msg){ var el = document.getElementById(id); if(!el) return; el.textContent = msg + '\n' + el.textContent.split('\n').slice(0,19).join('\n'); }
+  function api(path, opts){ return fetch(path, opts || {}).then(function(r){ return r.json(); }); }
+  function post(path, body){ return api(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) }); }
+  function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // 初始化：配置 + MCP 状态
+  api('/api/split/config').then(function(c){
+    if(!c.ok) return;
+    document.getElementById('splitPrompt').value = c.prompts.splitSystem || '';
+    document.getElementById('refinePrompt').value = c.prompts.refineTemplate || '';
+    var chip = document.getElementById('tripoChip');
+    if(c.tripo.ready){ chip.className = 'st ok'; chip.textContent = 'Tripo 就绪 · ' + (c.tripo.model || ''); }
+    else { chip.className = 'st error'; chip.textContent = 'Tripo key 未就绪（config.json）'; }
+  });
+  document.getElementById('btnSavePrompts').addEventListener('click', function(){
+    post('/api/split/config', { splitSystem: document.getElementById('splitPrompt').value, refineTemplate: document.getElementById('refinePrompt').value })
+      .then(function(r){ sLog('importLog', r.ok ? '模板已保存至 config.json' : ('保存失败：' + (r.error || ''))); })
+      .catch(function(e){ sLog('importLog', '保存失败：' + e); });
+  });
+  api('/api/mcp/status').then(function(m){
+    var el = document.getElementById('mcpChip');
+    if(m.ok && m.mcpOnline){ el.className = 'st ok'; el.textContent = 'UE 编辑器在线（55557）'; }
+    else { el.className = 'st idle'; el.textContent = 'UE 编辑器未开启'; }
+  });
+
+  // 缩略图放大查看
+  var overlay = document.getElementById('thumbOverlay');
+  overlay.addEventListener('click', function(){ overlay.classList.remove('on'); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') overlay.classList.remove('on'); });
+
+  // 上传参考图
+  var zone = document.getElementById('splitZone');
+  var fileInput = document.getElementById('splitFile');
+  function loadImageFromFile(f){
+    if(!f || !/^image\/(png|jpe?g|webp)$/i.test(f.type)){ alert('仅支持 JPG / PNG / WebP'); return; }
+    var rd = new FileReader();
+    rd.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        baseImg = img; fitCanvas(); drawCanvas();
+        canvas.style.display = 'block';
+        var t = document.getElementById('splitZoneTip');
+        t.textContent = '点击或拖拽可更换参考图（支持 JPG / PNG / WebP）';
+        t.className = 'uztip has';
+      };
+      img.src = rd.result;
+    };
+    rd.readAsDataURL(f);
+  }
+  var tipEl = document.getElementById('splitZoneTip');
+  tipEl.addEventListener('click', function(){ fileInput.click(); });
+  canvas.addEventListener('click', function(){
+    if(document.querySelector('input[name="splitMode"]:checked').value === 'manual') return;
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', function(){ loadImageFromFile(fileInput.files[0]); });
+  document.getElementById('btnLoadImg').addEventListener('click', function(){ fileInput.click(); });
+  zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', function(){ zone.classList.remove('drag'); });
+  zone.addEventListener('drop', function(e){ e.preventDefault(); zone.classList.remove('drag'); loadImageFromFile(e.dataTransfer.files && e.dataTransfer.files[0]); });
+
+  function fitCanvas(){
+    var maxW = 720, maxH = 480;
+    var scale = Math.min(maxW / baseImg.width, maxH / baseImg.height, 1);
+    canvas.width = Math.max(8, Math.round(baseImg.width * scale));
+    canvas.height = Math.max(8, Math.round(baseImg.height * scale));
+  }
+  function drawCanvas(){
+    if(!baseImg) return;
+    cctx.clearRect(0, 0, canvas.width, canvas.height);
+    cctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
+    if(sel){
+      var x = Math.min(sel.x0, sel.x1), y = Math.min(sel.y0, sel.y1);
+      var w = Math.abs(sel.x1 - sel.x0), h = Math.abs(sel.y1 - sel.y0);
+      cctx.strokeStyle = '#f87171'; cctx.lineWidth = 2; cctx.setLineDash([6,4]);
+      cctx.strokeRect(x, y, w, h); cctx.setLineDash([]);
+    }
+  }
+  function canvasXY(e){
+    var r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
+  }
+  canvas.addEventListener('mousedown', function(e){
+    if(!baseImg || drawing) return;
+    if(document.querySelector('input[name="splitMode"]:checked').value !== 'manual') return;
+    var p = canvasXY(e); sel = { x0: p.x, y0: p.y, x1: p.x, y1: p.y }; drawing = true;
+  });
+  canvas.addEventListener('mousemove', function(e){
+    if(!drawing || !sel) return;
+    var p = canvasXY(e); sel.x1 = p.x; sel.y1 = p.y; drawCanvas();
+  });
+  canvas.addEventListener('mouseup', function(e){
+    if(!drawing) return; drawing = false;
+    var p = canvasXY(e); sel.x1 = p.x; sel.y1 = p.y;
+    var x = Math.round(Math.min(sel.x0, sel.x1)), y = Math.round(Math.min(sel.y0, sel.y1));
+    var w = Math.round(Math.abs(sel.x1 - sel.x0)), h = Math.round(Math.abs(sel.y1 - sel.y0));
+    if(w < 8 || h < 8){ sel = null; drawCanvas(); return; }
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var cx = c.getContext('2d');
+    cx.drawImage(baseImg, x * baseImg.width / canvas.width, y * baseImg.height / canvas.height,
+      w * baseImg.width / canvas.width, h * baseImg.height / canvas.height, 0, 0, w, h);
+    var dataUrl = c.toDataURL('image/png');
+    var name = prompt('为该资产命名：', '资产' + (items.length + 1));
+    if(name === null){ sel = null; drawCanvas(); return; }
+    addItem({ id: 'it_' + Date.now() + '_' + items.length, name: (name || ('资产' + (items.length + 1))).trim(), category: '其他', prompt: '', imageData: dataUrl, source: 'manual' });
+    sel = null; drawCanvas();
+  });
+  document.getElementById('btnClearCrop').addEventListener('click', function(){ sel = null; drawCanvas(); });
+
+  // 清单渲染
+  function addItem(it){ items.push(it); renderItems(); }
+  function checkedItems(){ return items.filter(function(it){ return it._chk !== false; }); }
+  function renderItems(){
+    var body = document.getElementById('itemBody');
+    body.innerHTML = '';
+    document.getElementById('itemCount').textContent = items.length;
+    var empty = document.getElementById('itemEmpty');
+    if(empty) empty.style.display = items.length ? 'none' : '';
+    var cats = ['家具','道具','建筑','植被','其他'];
+    items.forEach(function(it, idx){
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><input type="checkbox" class="ichk" data-i="'+idx+'" checked></td>' +
+        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></td>' +
+        '<td><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></td>' +
+        '<td><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></td>' +
+        '<td><input class="minp" data-f="prompt" data-i="'+idx+'" value="'+esc(it.prompt || '')+'"></td>' +
+        '<td><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></td>' +
+        '<td><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></td>' +
+        '<td><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></td>' +
+        '<td><button class="mini" data-del="'+idx+'">删除</button></td>';
+      body.appendChild(tr);
+    });
+    body.querySelectorAll('.minp').forEach(function(inp){
+      inp.addEventListener('change', function(){ items[+inp.dataset.i][inp.dataset.f] = inp.value; });
+    });
+    body.querySelectorAll('.mcat').forEach(function(sl){
+      sl.addEventListener('change', function(){ items[+sl.dataset.i][sl.dataset.f] = sl.value; });
+    });
+    body.querySelectorAll('.ichk').forEach(function(cb){
+      cb.addEventListener('change', function(){ items[+cb.dataset.i]._chk = cb.checked; });
+    });
+    body.querySelectorAll('.mthumb').forEach(function(t){
+      t.addEventListener('click', function(){
+        var it = items[+t.dataset.i]; if(!it || !it.imageData) return;
+        document.getElementById('thumbFull').src = it.imageData;
+        document.getElementById('thumbOverlay').classList.add('on');
+      });
+    });
+    body.querySelectorAll('[data-del]').forEach(function(btn){
+      btn.addEventListener('click', function(){ items.splice(+btn.dataset.del, 1); renderItems(); });
+    });
+    setRowStatus();
+  }
+  function setRowStatus(){
+    document.querySelectorAll('[data-s]').forEach(function(sp){
+      var it = items[+sp.dataset.s]; if(!it) return;
+      var cls = 'idle', txt = it.statusText || '待处理';
+      if(it.status === 'ok'){ cls = 'ok'; }
+      else if(it.status === 'error'){ cls = 'error'; txt = it.statusText || '失败'; }
+      else if(it.status === 'running'){ cls = 'running'; }
+      sp.className = 'st ' + cls; sp.textContent = txt;
+    });
+  }
+  document.getElementById('chkAll').addEventListener('change', function(){
+    items.forEach(function(it){ it._chk = this.checked; }, this);
+    document.querySelectorAll('.ichk').forEach(function(cb){ cb.checked = this.checked; }, this);
+  });
+
+  // ① AI 拆分
+  document.getElementById('btnAiSplit').addEventListener('click', function(){
+    if(!baseImg){ alert('请先上传参考图'); return; }
+    var btn = this, old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'AI 分析中…';
+    var dataUrl = canvas.toDataURL('image/png');
+    post('/api/split/ai', { imageData: dataUrl, promptTemplate: document.getElementById('splitPrompt').value })
+      .then(function(r){
+        if(!r.ok){ alert('AI 拆分失败：' + (r.error || '')); return; }
+        var ts = Date.now();
+        (r.items || []).forEach(function(x){
+          var thumb = dataUrl;
+          if(Array.isArray(x.bbox) && x.bbox.length === 4 && baseImg){
+            var b = x.bbox;
+            var bw = Math.round((b[2] - b[0]) / 1000 * baseImg.width);
+            var bh = Math.round((b[3] - b[1]) / 1000 * baseImg.height);
+            if(bw >= 8 && bh >= 8){
+              var c = document.createElement('canvas'); c.width = bw; c.height = bh;
+              var cx = c.getContext('2d');
+              cx.drawImage(baseImg, b[0] / 1000 * baseImg.width, b[1] / 1000 * baseImg.height, bw, bh, 0, 0, bw, bh);
+              thumb = c.toDataURL('image/png');
+            }
+          }
+          addItem({ id: 'it_' + ts + '_' + items.length, name: x.name, category: x.category || '其他', prompt: x.prompt || '', imageData: thumb, source: 'ai' });
+        });
+        sLog('importLog', 'AI 拆分完成：' + r.items.length + ' 项已加入清单');
+      })
+      .catch(function(e){ alert('AI 拆分失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = old; });
+  });
+
+  // ② 高清细化
+  document.getElementById('btnRefine').addEventListener('click', function(){
+    var list = checkedItems();
+    if(!list.length){ alert('请先勾选要细化的资产'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = '细化中…';
+    post('/api/refine', { items: list.map(function(it){ return { id: it.id, name: it.name, imageData: it.imageData }; }), template: document.getElementById('refinePrompt').value })
+      .then(function(r){
+        if(!r.ok){ sLog('refineLog', '细化失败：' + (r.error || '')); return; }
+        r.results.forEach(function(res){
+          var it = items.find(function(x){ return x.id === res.id; });
+          if(!it) return;
+          if(res.status === 'ok'){ it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedPath = res.path; it.imageData = res.url; }
+          else { it.status = 'error'; it.statusText = '细化失败'; }
+        });
+        renderItems();
+        var okN = r.results.filter(function(x){ return x.status === 'ok'; }).length;
+        sLog('refineLog', '细化完成：' + okN + '/' + r.results.length + ' 成功 → Assets\\Models\\<名称>\\refined.png');
+      })
+      .catch(function(e){ sLog('refineLog', '细化失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = '批量高清重绘勾选项'; });
+  });
+
+  // ③ Tripo 建模
+  document.getElementById('btnTripo').addEventListener('click', function(){
+    var list = checkedItems();
+    if(!list.length){ alert('请先勾选要建模的资产'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = '提交中…';
+    post('/api/tripo/generate', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category }; }) })
+      .then(function(r){
+        if(!r.ok){ sLog('tripoLog', '提交失败：' + (r.error || '')); return; }
+        r.results.forEach(function(res){
+          var it = items.find(function(x){ return x.id === res.id; });
+          if(!it) return;
+          if(res.task_id){ it.taskId = res.task_id; it.tripoStatus = 'queued'; it.status = 'running'; it.statusText = '排队中'; }
+          else { it.status = 'error'; it.statusText = '提交失败'; it.tripoStatus = 'error'; }
+        });
+        renderItems();
+        sLog('tripoLog', '已提交 ' + r.results.length + ' 个任务，开始轮询进度…');
+        pollTripo();
+      })
+      .catch(function(e){ sLog('tripoLog', '提交失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = '批量生成 3D 模型（Tripo）'; });
+  });
+  var polling = false;
+  function pollTripo(){
+    if(polling) return; polling = true;
+    var pend = items.filter(function(it){ return it.taskId && it.tripoStatus !== 'success' && it.tripoStatus !== 'error'; });
+    if(!pend.length){ polling = false; return; }
+    api('/api/tripo/status?task_ids=' + pend.map(function(it){ return it.taskId; }).join(','))
+      .then(function(r){
+        (r.results || []).forEach(function(res){
+          var it = items.find(function(x){ return x.taskId === res.task_id; });
+          if(!it) return;
+          if(res.status === 'success'){ it.tripoStatus = 'success'; it.status = 'ok'; it.statusText = '模型就绪'; it.modelUrl = res.model_url; it.previewUrl = res.rendered_image_url; }
+          else if(res.status === 'failed' || res.status === 'error' || res.status === 'cancelled'){ it.tripoStatus = 'error'; it.status = 'error'; it.statusText = (res.error_message || res.status); }
+          else { it.tripoStatus = res.status; it.status = 'running'; it.statusText = (res.status === 'running' ? '生成中 ' + (res.progress || 0) + '%' : '排队中'); }
+        });
+        renderItems();
+        sLog('tripoLog', '轮询中：' + pend.length + ' 个任务（' + new Date().toLocaleTimeString() + '）');
+        polling = false;
+        setTimeout(pollTripo, 3000);
+      })
+      .catch(function(){ polling = false; setTimeout(pollTripo, 5000); });
+  }
+  document.getElementById('btnTripoDl').addEventListener('click', function(){
+    var list = items.filter(function(it){ return it.tripoStatus === 'success'; });
+    if(!list.length){ alert('还没有已完成的模型，请先等待生成完毕'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = '下载中…';
+    post('/api/tripo/download', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category, task_id: it.taskId }; }) })
+      .then(function(r){
+        if(!r.ok){ sLog('tripoLog', '下载失败：' + (r.error || '')); return; }
+        r.results.forEach(function(res){
+          var it = items.find(function(x){ return x.id === res.id; });
+          if(it){ if(res.status === 'ok'){ it.status = 'ok'; it.statusText = '已入库'; it.glbPath = res.glbPath; } else { it.status = 'error'; it.statusText = '下载失败'; } }
+        });
+        renderItems();
+        var okN = r.results.filter(function(x){ return x.status === 'ok'; }).length;
+        sLog('tripoLog', '下载完成：' + okN + '/' + r.results.length + ' → Assets\\Models\\ + 工程 Content\\Assets\\Meshes\\');
+      })
+      .catch(function(e){ sLog('tripoLog', '下载失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = '下载已完成模型'; });
+  });
+
+  // ⑤ 批量导入
+  document.getElementById('btnImport').addEventListener('click', function(){
+    var list = checkedItems().filter(function(it){ return it.status === 'ok' && (it.glbPath || it.tripoStatus === 'success'); });
+    if(!list.length){ alert('请先勾选已完成 Tripo 下载的资产（步骤③ 下载后状态为「已入库」）'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = '导入中…';
+    post('/api/import', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category }; }), location: [0,0,0] })
+      .then(function(r){
+        sLog('importLog', (r.note || '') + (r.scriptPath ? '\n导入脚本：' + r.scriptPath : ''));
+      })
+      .catch(function(e){ sLog('importLog', '导入失败：' + e); })
+      .then(function(){ btn.disabled = false; btn.textContent = '批量导入勾选项'; });
+  });
+})();
+</script>
+</body>
+</html>
