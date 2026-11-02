@@ -775,10 +775,15 @@
           var it = items.find(function(x){ return x.id === res.id; });
           if(!it) return;
           if(res.task_id){ it.taskId = res.task_id; it.tripoStatus = 'queued'; it.status = 'running'; it.statusText = '排队中'; }
-          else { it.status = 'error'; it.statusText = '提交失败'; it.tripoStatus = 'error'; }
+          else { it.status = 'error'; it.statusText = (res.error || '提交失败').slice(0, 30); it.tripoStatus = 'error'; }
         });
         renderItems();
-        sLog('tripoLog', '已提交 ' + r.results.length + ' 个任务，开始轮询进度…');
+        var failN = r.results.filter(function(x){ return !x.task_id; }).length;
+        if(failN === r.results.length){
+          sLog('tripoLog', '提交失败 ' + failN + ' 个：' + ((r.results[0] && r.results[0].error) || ''));
+        } else {
+          sLog('tripoLog', '已提交 ' + (r.results.length - failN) + ' 个任务' + (failN ? '，' + failN + ' 个失败：' + r.results.filter(function(x){ return !x.task_id; }).map(function(x){ return x.name + ':' + x.error; }).join('；') : '') + '，开始轮询进度…');
+        }
         pollTripo();
       })
       .catch(function(e){ sLog('tripoLog', '提交失败：' + e); })

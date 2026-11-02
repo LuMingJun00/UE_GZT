@@ -1,6 +1,9 @@
 // UE 场景制作工作台 - 本地控制台服务（仅监听本机 127.0.0.1）
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
+import { connect } from "node:net";
+import { request as httpsRequest } from "node:https";
+import tls from "node:tls";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, dirname, basename } from "node:path";
 import { spawn, execFile } from "node:child_process";
@@ -39,6 +42,54 @@ function loadConfig() {
   try { return JSON.parse(readFileSync(CONFIG_FILE, "utf8")); }
   catch (e) { return null; }
 }
+
+// Tripo（国外平台 tripo3d.ai）请求走系统代理（浏览器可访问、Node 直连超时的网络环境）；comfly 保持直连
+const tripoProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "";
+async function proxyFetch(url, opts = {}) {
+  if (!tripoProxyUrl) return fetch(url, opts);
+  const u = new URL(url);
+  const p = new URL(tripoProxyUrl);
+  let body = opts.body;
+  let headers = Object.assign({}, opts.headers || {});
+  return new Promise((resolve, reject) => {
+    const sock = connect(Number(p.port || 80), p.hostname, () => {
+      sock.write(`CONNECT ${u.host}:443 HTTP/1.1\r\nHost: ${u.host}:443\r\n\r\n`);
+    });
+    sock.on("error", reject);
+    const onData = (chunk) => {
+      const m = chunk.toString().match(/^HTTP\/1\.[01] (\d{3})/);
+      if (!m) return;
+      sock.removeListener("data", onData);
+      if (m[1] !== "200") { reject(new Error("代理 CONNECT 失败 HTTP " + m[1])); sock.destroy(); return; }
+      const tlsSock = tls.connect({ socket: sock, servername: u.host }, () => {
+        const req = httpsRequest({
+          host: u.host, path: u.pathname + u.search, method: opts.method || "GET", headers,
+          createConnection: () => tlsSock,
+        }, (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve({
+              ok: res.statusCode >= 200 && res.statusCode < 300,
+              status: res.statusCode,
+              statusText: res.statusMessage,
+              json: async () => JSON.parse(buf.toString("utf8")),
+              text: async () => buf.toString("utf8"),
+              arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+            });
+          });
+        });
+        req.on("error", reject);
+        if (body) req.write(body);
+        req.end();
+      });
+      tlsSock.on("error", reject);
+    };
+    sock.on("data", onData);
+  });
+}
+function tripoFetch(url, opts) { return proxyFetch(url, opts); }
 
 function sanitizeName(name) {
   if (!name) return "asset";
@@ -456,8 +507,8 @@ function saveBase64Image(dataUrl, filePath) {
   return filePath;
 }
 
-async function downloadUrlToFile(url, filePath) {
-  const r = await fetch(url, { timeout: 120000 });
+async function downloadUrlToFile(url, filePath, proxyUrl) {
+  const r = proxyUrl ? await proxyFetch(url, {}) : await fetch(url, { timeout: 120000 });
   if (!r.ok) throw new Error("下载失败 HTTP " + r.status + " " + url);
   const buf = Buffer.from(await r.arrayBuffer());
   mkdirSync(dirname(filePath), { recursive: true });
@@ -598,16 +649,20 @@ async function refineItems(cfg, items, template) {
 
 async function tripoUpload(cfg, filePath) {
   const buf = readFileSync(filePath);
-  const form = new FormData();
-  form.append("file", new Blob([buf], { type: "image/png" }), "ref.png");
-  // v3 上传接口（文档编写中），失败回退 v2
+  const boundary = "----WBFormBoundary" + Date.now();
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="ref.png"\r\nContent-Type: image/png\r\n\r\n`, "utf8"),
+    buf,
+    Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
+  ]);
+  const v2Base = cfg.tripo.baseUrl.replace(/\/v3\/?$/, "");
   const tries = [
-    { url: cfg.tripo.baseUrl + "/files/upload", name: "v3/files/upload" },
-    { url: "https://api.tripo3d.com/v2/openapi/upload", name: "v2/openapi/upload" },
+    { url: cfg.tripo.baseUrl + "/files", name: "v3/files" },
+    { url: v2Base + "/v2/openapi/upload", name: "v2/openapi/upload" },
   ];
   for (const t of tries) {
     try {
-      const r = await fetch(t.url, { method: "POST", headers: { Authorization: "Bearer " + cfg.tripo.apiKey }, body: form });
+      const r = await tripoFetch(t.url, { method: "POST", headers: { Authorization: "Bearer " + cfg.tripo.apiKey, "Content-Type": "multipart/form-data; boundary=" + boundary }, body });
       const j = await r.json().catch(() => ({}));
       if (r.ok && (j.data?.file_token || j.data?.file_token_id)) {
         return j.data.file_token || j.data.file_token_id;
@@ -652,7 +707,7 @@ async function tripoCreateTasks(cfg, items, opts) {
       texture_quality: opts.textureQuality || cfg.tripo.textureQuality || "standard",
     };
     try {
-      const r = await fetch(cfg.tripo.baseUrl + "/generation/image-to-model", {
+      const r = await tripoFetch(cfg.tripo.baseUrl + "/generation/image-to-model", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.tripo.apiKey },
         body: JSON.stringify(body),
@@ -673,7 +728,7 @@ async function tripoQueryTasks(ids) {
   const results = [];
   for (const tid of ids) {
     try {
-      const r = await fetch(cfg.tripo.baseUrl + "/tasks/" + encodeURIComponent(tid), {
+      const r = await tripoFetch(cfg.tripo.baseUrl + "/tasks/" + encodeURIComponent(tid), {
         headers: { Authorization: "Bearer " + cfg.tripo.apiKey },
       });
       const j = await r.json().catch(() => ({}));
@@ -705,9 +760,9 @@ async function tripoDownload(items) {
       const name = sanitizeName(it.name);
       const cat = sanitizeName(it.category || "其他");
       const glbPath = join(MODEL_ROOT, name, name + ".glb");
-      await downloadUrlToFile(d.model_url, glbPath);
+      await downloadUrlToFile(d.model_url, glbPath, tripoProxyUrl);
       let previewPath = null;
-      if (d.rendered_image_url) { previewPath = join(MODEL_ROOT, name, "preview.png"); await downloadUrlToFile(d.rendered_image_url, previewPath); }
+      if (d.rendered_image_url) { previewPath = join(MODEL_ROOT, name, "preview.png"); await downloadUrlToFile(d.rendered_image_url, previewPath, tripoProxyUrl); }
       // 归位到工程 Content
       const contentPath = join(CONTENT_MESHES, cat, name, name + ".glb");
       mkdirSync(dirname(contentPath), { recursive: true });

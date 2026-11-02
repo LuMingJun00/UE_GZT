@@ -7,7 +7,7 @@
     "imageSize": "1024x1024"
   },
   "tripo": {
-    "baseUrl": "https://openapi.tripo3d.com/v3",
+    "baseUrl": "https://openapi.tripo3d.ai/v3",
     "apiKey": "tsk_poydauc91LaXnFrK5xvUuU4E9DpPLSITQrzkelh743c",
     "model": "P1-20260311",
     "textureQuality": "standard",
