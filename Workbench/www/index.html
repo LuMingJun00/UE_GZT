@@ -531,11 +531,14 @@
     post('/api/split/ai', { imageData: dataUrl, promptTemplate: document.getElementById('splitPrompt').value })
       .then(function(r){
         if(!r.ok){ alert('AI 拆分失败：' + (r.error || '')); return; }
-        var ts = Date.now();
-        (r.items || []).forEach(function(x){
+        var ts = Date.now(); var seq = 0;
+        var list = r.items || [];
+        if(!list.length){ sLog('importLog', 'AI 拆分未返回任何项'); return; }
+        // 裁剪放大 → 精化定位 → 生成聚焦缩略图（并发 3 批）
+        function makeAiItem(x, bbox){
           var thumb = dataUrl;
-          if(Array.isArray(x.bbox) && x.bbox.length === 4 && baseImg){
-            var b = x.bbox;
+          if(Array.isArray(bbox) && bbox.length === 4 && baseImg){
+            var b = bbox;
             var bw = Math.round((b[2] - b[0]) / 1000 * baseImg.width);
             var bh = Math.round((b[3] - b[1]) / 1000 * baseImg.height);
             if(bw >= 8 && bh >= 8){
@@ -545,9 +548,51 @@
               thumb = c.toDataURL('image/png');
             }
           }
-          addItem({ id: 'it_' + ts + '_' + items.length, name: x.name, category: x.category || '其他', prompt: x.prompt || '', imageData: thumb, source: 'ai' });
-        });
-        sLog('importLog', 'AI 拆分完成：' + r.items.length + ' 项已加入清单');
+          return { id: 'it_' + ts + '_' + (seq++), name: x.name, category: x.category || '其他', prompt: x.prompt || '', imageData: thumb, source: 'ai' };
+        }
+        var done = 0, idx = 0;
+        function addWithThumb(x, bbox){ addItem(makeAiItem(x, bbox)); done++; if(idx < list.length) next(); else if(done >= list.length) sLog('importLog', 'AI 拆分 + 精化定位完成：' + list.length + ' 项已加入清单'); }
+        function refineOne(x){
+          if(Array.isArray(x.bbox) && x.bbox.length === 4 && baseImg){
+            var b = x.bbox;
+            var w = b[2] - b[0], h = b[3] - b[1], pad = 0.08;
+            var x0 = Math.max(0, b[0] - pad * w), y0 = Math.max(0, b[1] - pad * h);
+            var x1 = Math.min(1000, b[2] + pad * w), y1 = Math.min(1000, b[3] + pad * h);
+            var px0 = x0 / 1000 * baseImg.width, py0 = y0 / 1000 * baseImg.height;
+            var pw = (x1 - x0) / 1000 * baseImg.width, ph = (y1 - y0) / 1000 * baseImg.height;
+            var c = document.createElement('canvas'); c.width = Math.max(8, Math.round(pw)); c.height = Math.max(8, Math.round(ph));
+            var cx = c.getContext('2d');
+            cx.drawImage(baseImg, px0, py0, pw, ph, 0, 0, c.width, c.height);
+            post('/api/split/refine-bbox', { imageData: c.toDataURL('image/png'), objectName: x.name })
+              .then(function(rr){
+                if(rr && rr.ok && Array.isArray(rr.bbox) && rr.bbox.length === 4){
+                  var rb = rr.bbox;
+                  var fb = [
+                    (px0 + rb[0] / 1000 * pw) / baseImg.width * 1000,
+                    (py0 + rb[1] / 1000 * ph) / baseImg.height * 1000,
+                    (px0 + rb[2] / 1000 * pw) / baseImg.width * 1000,
+                    (py0 + rb[3] / 1000 * ph) / baseImg.height * 1000,
+                  ];
+                  // 合理性校验：面积或宽高比明显异常时回退粗框
+                  var cb = x.bbox;
+                  var cw = cb[2] - cb[0], ch = cb[3] - cb[1];
+                  var fw = fb[2] - fb[0], fh = fb[3] - fb[1];
+                  if (fw <= 0 || fh <= 0) { addWithThumb(x, cb); return; }
+                  var areaRatio = (fw * fh) / (cw * ch);
+                  var ratioDev = Math.max(fw / fh / (cw / ch), (cw / ch) / (fw / fh));
+                  if (areaRatio < 0.35 || areaRatio > 3 || ratioDev > 2.5) { addWithThumb(x, cb); return; }
+                  addWithThumb(x, fb);
+                } else { addWithThumb(x, x.bbox); }
+              })
+              .catch(function(){ addWithThumb(x, x.bbox); });
+          } else { addWithThumb(x, null); }
+        }
+        function next(){
+          var slice = list.slice(idx, idx + 3); idx += 3;
+          slice.forEach(refineOne);
+        }
+        sLog('importLog', 'AI 拆分完成 ' + list.length + ' 项，精化定位中…');
+        next();
       })
       .catch(function(e){ alert('AI 拆分失败：' + e); })
       .then(function(){ btn.disabled = false; btn.textContent = old; });

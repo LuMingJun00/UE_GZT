@@ -257,6 +257,23 @@ async function handleApi(req, res, url) {
     return true;
   }
 
+  // 两轮精化：对局部放大图精确输出物体边界框
+  if (path === "/api/split/refine-bbox") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const imageInput = body.imageData || body.imageUrl;
+    const objectName = String(body.objectName || "").trim();
+    if (!imageInput || !objectName) { sendJson(res, 400, { ok: false, error: "缺少局部图或物体名称" }); return true; }
+    try {
+      const bbox = await comflyLocateBbox(cfg, imageInput, objectName);
+      sendJson(res, 200, { ok: true, bbox });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
   if (path === "/api/refine") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const cfg = loadConfig();
@@ -422,6 +439,44 @@ async function comflySplit(cfg, systemPrompt, imageInput) {
       bbox,
     };
   });
+}
+
+async function comflyLocateBbox(cfg, imageInput, objectName) {
+  const system = "你是精确物体定位器。图片中含有一个主体物体，请输出该物体在本图中的完整位置边界框，格式为 JSON：{\"bbox\":[x0,y0,x1,y1]}，坐标为千分比即0-1000，x0/y0为左上角、x1/y1为右下角。要求：框必须包含物体完整主体（若物体部分超出画面边缘则框到画面边缘）；若物体是完整几何形状（圆形、椭圆形、矩形、三角形、多边形等），框必须包含其完整外形边界、宽高比与物体形状一致，不得只框住局部或中间区域；尽量贴近物体本体、不含无关背景，误差不超过15。只输出 JSON 对象，不要输出任何解释或 markdown。";
+  const body = {
+    model: cfg.comfly.visionModel || "gpt-4o",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: [
+        { type: "text", text: "图中主体物体是：" + objectName + "。请给出它的精确边界框。" },
+        { type: "image_url", image_url: { url: imageInput } },
+      ]},
+    ],
+    max_tokens: 300,
+  };
+  const r = await fetch(cfg.comfly.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 定位失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 200)));
+  const text = j.choices?.[0]?.message?.content || "";
+  let bbox = null;
+  try {
+    const cleaned = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const obj = JSON.parse(cleaned);
+    if (Array.isArray(obj.bbox) && obj.bbox.length === 4) {
+      const b = obj.bbox.map(Number);
+      if (b.every(Number.isFinite)) bbox = b.map((v) => Math.max(0, Math.min(1000, v)));
+    }
+  } catch {}
+  if (!bbox) {
+    const nums = (String(text).match(/-?\d+(\.\d+)?/g) || []).map(Number).slice(0, 4);
+    if (nums.length === 4 && nums.every(Number.isFinite)) bbox = nums.map((v) => Math.max(0, Math.min(1000, v)));
+  }
+  if (!bbox) throw new Error("AI 未返回有效 bbox");
+  return bbox;
 }
 
 async function comflyEdits(cfg, imagePath, prompt) {
