@@ -488,6 +488,28 @@ async function handleApi(req, res, url) {
     return true;
   }
 
+  // 删除某历史候选图（仅 refined_<ts>.png；主图 refined.png 与资产本体不可删）
+  if (path === "/api/refine/delete") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const name = sanitizeName(String(body.name || "").trim());
+    const delPath = String(body.path || "").trim();
+    if (!name || !delPath) { sendJson(res, 400, { ok: false, error: "缺少名称或候选路径" }); return true; }
+    try {
+      const dir = join(MODEL_ROOT, name);
+      const resolved = resolve(delPath);
+      const relCheck = relative(dir, resolved);
+      if (relCheck.startsWith("..") || relCheck.includes("..\\") || relCheck.includes("../")) throw new Error("候选路径不合法");
+      if (!existsSync(resolved)) throw new Error("候选文件不存在");
+      const bn = basename(resolved);
+      if (!/^refined_\d+\.png$/i.test(bn)) throw new Error("仅可删除历史候选图，当前主图不可删除");
+      unlinkSync(resolved);
+      sendJson(res, 200, { ok: true, name: bn });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
   if (path === "/api/tripo/upload") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const cfg = loadConfig();
