@@ -69,7 +69,7 @@
   canvas#splitCanvas{width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;display:block;background:#0d1014;cursor:crosshair}
   #thumbOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}
   #thumbOverlay.on{display:flex}
-  #thumbFull{max-width:86vw;max-height:86vh;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0d1014;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  #thumbFull{max-width:95vw;max-height:93vh;object-fit:contain;border-radius:10px;border:1px solid var(--line);background:#0d1014;box-shadow:0 12px 40px rgba(0,0,0,.6)}
   #refineOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out}
   #refineOverlay.on{display:flex}
   #refineOverlay .rovbox{background:#131a24;border:1px solid var(--line);border-radius:12px;padding:16px 18px;max-width:1160px;width:94vw;max-height:90vh;overflow:auto;cursor:default}
@@ -97,16 +97,15 @@
   .pcell .ptrans{flex:none}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
   .chk input{accent-color:var(--teal)}
-  .mtable{width:100%;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
-  .mhead,.mrow{display:flex;align-items:stretch}
-  .mhead{background:var(--panel2)}
-  .mcell{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;padding:7px 8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;font-size:12.5px;box-sizing:border-box}
-  .mhead .mcell{color:var(--sub);font-weight:700;white-space:nowrap}
+  .mtable{display:grid;grid-template-columns:32px 56px minmax(90px,max-content) minmax(130px,max-content) minmax(78px,max-content) minmax(160px,1fr) minmax(72px,max-content) minmax(72px,max-content) minmax(72px,max-content) minmax(60px,max-content);width:100%;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+  .mhead,.mrow,#itemBody{display:contents}
+  .mcell{display:flex;align-items:center;justify-content:flex-start;padding:7px 8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;font-size:12.5px;box-sizing:border-box}
+  .mhead .mcell{background:var(--panel2);color:var(--sub);font-weight:700;white-space:nowrap}
   .mrow:last-child .mcell{border-bottom:none}
   .mcell:last-child{border-right:none}
   .mthumb{width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--line);background:#0d1014;display:block;cursor:pointer}
   .minp{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 8px;font-size:12.5px;width:100%;box-sizing:border-box}
-  .mcat{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 6px;font-size:12px}
+  .mcat{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 6px;font-size:12px;width:auto}
   .st{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11.5px;font-weight:700;white-space:nowrap}
   .st.queued{background:#3b2f10;color:#fbbf24}.st.running{background:#12233d;color:#60a5fa}.st.ok{background:#0e2a22;color:#34d399}.st.error{background:#3b1212;color:#f87171}.st.idle{background:var(--panel2);color:var(--dim)}
   .progress{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:4px}
@@ -207,9 +206,9 @@
       </div>
       <input type="file" id="splitFile" accept="image/*" style="display:none">
       <div class="toolrow">
-        <label class="chk"><input type="radio" name="splitMode" value="ai" checked> AI 自动识别</label>
+        <label class="chk"><input type="radio" name="splitMode" value="ai"> AI 自动识别</label>
         <button class="btn small" id="btnAiSplit" style="width:auto;padding:9px 16px">AI 反推拆分</button>
-        <label class="chk"><input type="radio" name="splitMode" value="manual"> 手动框选</label>
+        <label class="chk"><input type="radio" name="splitMode" value="manual" checked> 手动框选</label>
         <button class="btn small" id="btnRecognizeSel" style="width:auto;padding:9px 16px">识别框选反推</button>
         <button class="mini" id="btnAddManual">确认加入清单</button>
         <button class="mini" id="btnClearCrop">清除框选</button>
@@ -231,16 +230,16 @@
       </div>
       <div class="mtable" id="mtable">
         <div class="mhead" id="itemHead">
-          <div class="mcell" style="flex:0 0 32px;justify-content:center"><input type="checkbox" id="chkAll" checked></div>
-          <div class="mcell" style="flex:0 0 56px">缩略图</div>
-          <div class="mcell" style="flex:0 0 76px">中文名</div>
-          <div class="mcell" style="flex:0 0 110px">英文名</div>
-          <div class="mcell" style="flex:0 0 56px">类别</div>
-          <div class="mcell" style="flex:1 1 0;min-width:0">建模描述</div>
-          <div class="mcell" style="flex:0 0 60px">细化</div>
-          <div class="mcell" style="flex:0 0 60px">Tripo</div>
-          <div class="mcell" style="flex:0 0 60px">状态</div>
-          <div class="mcell" style="flex:0 0 52px">操作</div>
+          <div class="mcell" style="justify-content:center"><input type="checkbox" id="chkAll" checked></div>
+          <div class="mcell">缩略图</div>
+          <div class="mcell">中文名</div>
+          <div class="mcell">英文名</div>
+          <div class="mcell">类别</div>
+          <div class="mcell">建模描述</div>
+          <div class="mcell">细化</div>
+          <div class="mcell">Tripo</div>
+          <div class="mcell">状态</div>
+          <div class="mcell">操作</div>
         </div>
         <div id="itemBody"></div>
       </div>
@@ -551,10 +550,11 @@ function toast(msg, isErr){
     var x = Math.round(Math.min(sel.x0, sel.x1)), y = Math.round(Math.min(sel.y0, sel.y1));
     var w = Math.round(Math.abs(sel.x1 - sel.x0)), h = Math.round(Math.abs(sel.y1 - sel.y0));
     if(w < 8 || h < 8) return null;
-    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var sx = x * baseImg.width / canvas.width, sy = y * baseImg.height / canvas.height;
+    var sw = w * baseImg.width / canvas.width, sh = h * baseImg.height / canvas.height;
+    var c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
     var cx = c.getContext('2d');
-    cx.drawImage(baseImg, x * baseImg.width / canvas.width, y * baseImg.height / canvas.height,
-      w * baseImg.width / canvas.width, h * baseImg.height / canvas.height, 0, 0, w, h);
+    cx.drawImage(baseImg, sx, sy, sw, sh, 0, 0, c.width, c.height);
     return c.toDataURL('image/png');
   }
   canvas.addEventListener('mouseup', function(e){
@@ -623,20 +623,24 @@ function toast(msg, isErr){
       var tr = document.createElement('div');
       tr.className = 'mrow';
       tr.innerHTML =
-        '<div class="mcell" style="flex:0 0 32px;justify-content:center"><input type="checkbox" class="ichk" data-i="'+idx+'" checked></div>' +
-        '<div class="mcell" style="flex:0 0 56px"><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></div>' +
-        '<div class="mcell" style="flex:0 0 76px"><input class="minp" data-f="nameCn" data-i="'+idx+'" value="'+esc(it.nameCn || '')+'"></div>' +
-        '<div class="mcell" style="flex:0 0 110px"><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></div>' +
-        '<div class="mcell" style="flex:0 0 56px"><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></div>' +
-        '<div class="mcell" style="flex:1 1 0;min-width:0"><div class="pcell"><span class="ptext" data-i="'+idx+'" title="点击查看全部文本">'+esc(promptText(it))+'</span><button class="mini ptrans" data-i="'+idx+'">'+ptBtn(it)+'</button></div></div>' +
-        '<div class="mcell" style="flex:0 0 60px"><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></div>' +
-        '<div class="mcell" style="flex:0 0 60px"><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></div>' +
-        '<div class="mcell" style="flex:0 0 60px"><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></div>' +
-        '<div class="mcell" style="flex:0 0 52px"><button class="mini" data-del="'+idx+'">删除</button></div>';
+        '<div class="mcell" style="justify-content:center"><input type="checkbox" class="ichk" data-i="'+idx+'" checked></div>' +
+        '<div class="mcell"><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></div>' +
+        '<div class="mcell"><input class="minp" size="'+Math.max(3,(it.nameCn||'').length*2+1)+'" data-f="nameCn" data-i="'+idx+'" value="'+esc(it.nameCn || '')+'"></div>' +
+        '<div class="mcell"><input class="minp" size="'+Math.max(5,(it.name||'').length+1)+'" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></div>' +
+        '<div class="mcell"><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></div>' +
+        '<div class="mcell"><div class="pcell"><span class="ptext" data-i="'+idx+'" title="点击查看全部文本">'+esc(promptText(it))+'</span><button class="mini ptrans" data-i="'+idx+'">'+ptBtn(it)+'</button></div></div>' +
+        '<div class="mcell"><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></div>' +
+        '<div class="mcell"><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></div>' +
+        '<div class="mcell"><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></div>' +
+        '<div class="mcell"><button class="mini" data-del="'+idx+'">删除</button></div>';
       body.appendChild(tr);
     });
     body.querySelectorAll('.minp').forEach(function(inp){
-      inp.addEventListener('change', function(){ items[+inp.dataset.i][inp.dataset.f] = inp.value; });
+      inp.addEventListener('change', function(){
+        items[+inp.dataset.i][inp.dataset.f] = inp.value;
+        inp.size = Math.max(inp.dataset.f === 'nameCn' ? 3 : 5,
+          inp.value.length * (inp.dataset.f === 'nameCn' ? 2 : 1) + 1);
+      });
     });
     body.querySelectorAll('.mcat').forEach(function(sl){
       sl.addEventListener('change', function(){ items[+sl.dataset.i][sl.dataset.f] = sl.value; });
