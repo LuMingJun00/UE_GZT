@@ -401,15 +401,25 @@ async function handleApi(req, res, url) {
     if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
     const name = sanitizeName(String(body.name || "").trim());
     const imageData = body.imageData;
-    if (!name || !imageData) { sendJson(res, 400, { ok: false, error: "缺少名称或源图" }); return true; }
+    const srcPathIn = String(body.srcPath || "").trim();
+    if (!name || (!imageData && !srcPathIn)) { sendJson(res, 400, { ok: false, error: "缺少名称或源图" }); return true; }
     const prompt = String(body.prompt || "").trim() || cfg.prompts?.refineTemplate || "";
     if (!prompt) { sendJson(res, 400, { ok: false, error: "缺少细化提示词" }); return true; }
     try {
-      // 源图优先取当前主细化图 refined.png（重新生成=在当前图上继续细化），无则用前端传入源图
+      // 源图优先级：前端指定候选路径 srcPath > 当前主细化图 refined.png > 前端传入 imageData
       const dir0 = join(MODEL_ROOT, name);
       const current = join(dir0, "refined.png");
       const tmpImg = join(TMP_DIR, "regen_src_" + name + "_" + Date.now() + ".png");
-      if (existsSync(current)) { mkdirSync(TMP_DIR, { recursive: true }); writeFileSync(tmpImg, readFileSync(current)); }
+      const srcPath = String(body.srcPath || "").trim();
+      mkdirSync(TMP_DIR, { recursive: true });
+      if (srcPath) {
+        const resolved = resolve(srcPath);
+        const relCheck = relative(dir0, resolved);
+        if (relCheck.startsWith("..") || relCheck.includes("..\\") || relCheck.includes("../")) throw new Error("源图路径不合法");
+        if (!existsSync(resolved) || !/^refined(_\d+)?\.png$/i.test(basename(resolved))) throw new Error("源图文件不存在");
+        writeFileSync(tmpImg, readFileSync(resolved));
+      }
+      else if (existsSync(current)) { writeFileSync(tmpImg, readFileSync(current)); }
       else if (imageData) saveBase64Image(imageData, tmpImg);
       else throw new Error("缺少源图（无当前细化图且未传源图）");
       const url = await comflyEdits(cfg, tmpImg, prompt);
