@@ -315,12 +315,30 @@ async function handleApi(req, res, url) {
     const body = JSON.parse((await readBody(req)) || "{}");
     const cfg = loadConfig();
     if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
-    const system = body.promptTemplate || cfg.prompts?.splitSystem;
+    const base = body.promptTemplate || cfg.prompts?.splitSystem || "";
+    // 附加要求：资产名称用英文，方便后续 UE 建模/导入使用英文命名（不改动用户保存的模板原文）
+    const system = base + "\n【附加要求】资产名称 name 字段必须使用英文（English），例如 Wooden Box、Red Cube、Stone Pillar；类别 category 使用中文。";
     const imageInput = body.imageData || body.imageUrl;
     if (!imageInput) { sendJson(res, 400, { ok: false, error: "缺少参考图" }); return true; }
     try {
       const items = await comflySplit(cfg, system, imageInput);
       sendJson(res, 200, { ok: true, items });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  // 手动框选区域识别：对裁剪图反推英文名称/类别/3D建模提示词
+  if (path === "/api/split/recognize") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const imageInput = body.imageData || body.imageUrl;
+    if (!imageInput) { sendJson(res, 400, { ok: false, error: "缺少框选区域图片" }); return true; }
+    try {
+      const info = await comflyRecognize(cfg, imageInput);
+      sendJson(res, 200, { ok: true, name: info.name, category: info.category, prompt: info.prompt });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
     }
@@ -593,6 +611,42 @@ async function comflySplit(cfg, systemPrompt, imageInput) {
       bbox,
     };
   });
+}
+
+async function comflyRecognize(cfg, imageInput) {
+  const system = "你是资产识别专家。识别图片中的主体物体，输出一个 JSON 对象：{\"name\":\"英文名称\",\"category\":\"类别\",\"prompt\":\"3D建模描述\"}。要求：name 必须使用英文（English）且简洁（1-4 个单词，如 Wooden Box、Red Cube、Stone Pillar）；category 从 家具/道具/建筑/植被/其他 中选择；prompt 用英文描述该物体的形状、材质、颜色、细节，50 词以内，适合作为 AI 3D 建模的输入。只输出 JSON 对象，不要输出任何解释或 markdown。";
+  const body = {
+    model: cfg.comfly.visionModel || "gpt-4o",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: [
+        { type: "text", text: "识别这张图片中的资产。" },
+        { type: "image_url", image_url: { url: imageInput } },
+      ]},
+    ],
+    max_tokens: 600,
+  };
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 识别失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 200)));
+  const text = j.choices?.[0]?.message?.content || "";
+  const cleaned = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  let obj = null;
+  try { obj = JSON.parse(cleaned); } catch {}
+  if (!obj) {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) { try { obj = JSON.parse(m[0]); } catch {} }
+  }
+  if (!obj || typeof obj !== "object") throw new Error("AI 未返回有效识别结果");
+  return {
+    name: String(obj.name || "").trim() || "Asset",
+    category: ["家具", "道具", "建筑", "植被", "其他"].includes(String(obj.category || "").trim()) ? String(obj.category).trim() : "其他",
+    prompt: String(obj.prompt || "").trim(),
+  };
 }
 
 async function comflyLocateBbox(cfg, imageInput, objectName) {
