@@ -91,17 +91,20 @@
   .cand .cn{font-size:10.5px;color:var(--dim);margin-top:4px}
   .cand .cur{position:absolute;top:-8px;right:-8px;background:#2aa96f;color:#fff;font-size:10px;border-radius:8px;padding:1px 6px}
   .toolrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-  .pcell{display:flex;align-items:center;gap:6px;width:100%;min-width:0;max-width:180px;overflow:hidden}
+  .pcell{display:flex;align-items:center;gap:6px;width:100%;min-width:0}
   .pcell .ptext{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:#e5e9f0;font-size:12.5px}
   .pcell .ptext:hover{color:#5ea2ff}
-  .pcell .ptrans{flex:none;margin-left:auto}
+  .pcell .ptrans{flex:none}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
   .chk input{accent-color:var(--teal)}
-  .tblwrap{overflow-x:auto;padding:0 8px}
-  table.mlist{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
-  table.mlist th,table.mlist td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:middle}
-  table.mlist th{background:var(--panel2);color:var(--sub);font-weight:700;white-space:nowrap}
-  .mthumb{width:52px;height:52px;object-fit:contain;border-radius:6px;border:1px solid var(--line);background:#0d1014;display:block;cursor:pointer}
+  .mtable{width:100%;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+  .mhead,.mrow{display:flex;align-items:stretch}
+  .mhead{background:var(--panel2)}
+  .mcell{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;padding:7px 8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden;font-size:12.5px;box-sizing:border-box}
+  .mhead .mcell{color:var(--sub);font-weight:700;white-space:nowrap}
+  .mrow:last-child .mcell{border-bottom:none}
+  .mcell:last-child{border-right:none}
+  .mthumb{width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--line);background:#0d1014;display:block;cursor:pointer}
   .minp{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 8px;font-size:12.5px;width:100%;box-sizing:border-box}
   .mcat{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:5px 6px;font-size:12px}
   .st{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11.5px;font-weight:700;white-space:nowrap}
@@ -226,16 +229,20 @@
         <h3 style="font-size:13.5px;color:var(--sub);margin:0">拆分清单（<span id="itemCount">0</span> 项）</h3>
         <button class="mini" id="btnClearAll">清理全部</button>
       </div>
-      <div class="tblwrap">
-        <table class="mlist" id="itemTable">
-          <thead id="itemHead"><tr>
-            <th style="width:28px"><input type="checkbox" id="chkAll" checked></th>
-            <th style="width:50px">缩略图</th><th style="width:72px">中文名</th><th style="width:110px">英文名</th><th style="width:48px">类别</th>
-            <th style="max-width:420px">建模描述</th><th style="width:56px">细化</th><th style="width:56px">Tripo</th>
-            <th style="width:56px">状态</th><th style="width:44px">操作</th>
-          </tr></thead>
-          <tbody id="itemBody"></tbody>
-        </table>
+      <div class="mtable" id="mtable">
+        <div class="mhead" id="itemHead">
+          <div class="mcell" style="flex:0 0 32px;justify-content:center"><input type="checkbox" id="chkAll" checked></div>
+          <div class="mcell" style="flex:0 0 56px">缩略图</div>
+          <div class="mcell" style="flex:0 0 76px">中文名</div>
+          <div class="mcell" style="flex:0 0 110px">英文名</div>
+          <div class="mcell" style="flex:0 0 56px">类别</div>
+          <div class="mcell" style="flex:1 1 0;min-width:0">建模描述</div>
+          <div class="mcell" style="flex:0 0 60px">细化</div>
+          <div class="mcell" style="flex:0 0 60px">Tripo</div>
+          <div class="mcell" style="flex:0 0 60px">状态</div>
+          <div class="mcell" style="flex:0 0 52px">操作</div>
+        </div>
+        <div id="itemBody"></div>
       </div>
       <div class="empty" id="itemEmpty">尚无资产。上传参考图后点「AI 反推拆分」，或在画布上手动框选。</div>
     </div>
@@ -613,18 +620,19 @@ function toast(msg, isErr){
     if(empty) empty.style.display = items.length ? 'none' : '';
     var cats = ['家具','道具','建筑','植被','其他'];
     items.forEach(function(it, idx){
-      var tr = document.createElement('tr');
+      var tr = document.createElement('div');
+      tr.className = 'mrow';
       tr.innerHTML =
-        '<td><input type="checkbox" class="ichk" data-i="'+idx+'" checked></td>' +
-        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></td>' +
-        '<td><input class="minp" data-f="nameCn" data-i="'+idx+'" value="'+esc(it.nameCn || '')+'"></td>' +
-        '<td><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></td>' +
-        '<td><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></td>' +
-        '<td><div class="pcell"><span class="ptext" data-i="'+idx+'" title="点击查看全部文本">'+esc(promptText(it))+'</span><button class="mini ptrans" data-i="'+idx+'">'+ptBtn(it)+'</button></div></td>' +
-        '<td><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></td>' +
-        '<td><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></td>' +
-        '<td><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></td>' +
-        '<td><button class="mini" data-del="'+idx+'">删除</button></td>';
+        '<div class="mcell" style="flex:0 0 32px;justify-content:center"><input type="checkbox" class="ichk" data-i="'+idx+'" checked></div>' +
+        '<div class="mcell" style="flex:0 0 56px"><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></div>' +
+        '<div class="mcell" style="flex:0 0 76px"><input class="minp" data-f="nameCn" data-i="'+idx+'" value="'+esc(it.nameCn || '')+'"></div>' +
+        '<div class="mcell" style="flex:0 0 110px"><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></div>' +
+        '<div class="mcell" style="flex:0 0 56px"><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></div>' +
+        '<div class="mcell" style="flex:1 1 0;min-width:0"><div class="pcell"><span class="ptext" data-i="'+idx+'" title="点击查看全部文本">'+esc(promptText(it))+'</span><button class="mini ptrans" data-i="'+idx+'">'+ptBtn(it)+'</button></div></div>' +
+        '<div class="mcell" style="flex:0 0 60px"><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></div>' +
+        '<div class="mcell" style="flex:0 0 60px"><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></div>' +
+        '<div class="mcell" style="flex:0 0 60px"><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></div>' +
+        '<div class="mcell" style="flex:0 0 52px"><button class="mini" data-del="'+idx+'">删除</button></div>';
       body.appendChild(tr);
     });
     body.querySelectorAll('.minp').forEach(function(inp){
