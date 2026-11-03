@@ -91,6 +91,10 @@
   .cand .cn{font-size:10.5px;color:var(--dim);margin-top:4px}
   .cand .cur{position:absolute;top:-8px;right:-8px;background:#2aa96f;color:#fff;font-size:10px;border-radius:8px;padding:1px 6px}
   .toolrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .pcell{display:flex;align-items:center;gap:6px;width:100%;min-width:0}
+  .pcell .ptext{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:#e5e9f0;font-size:12.5px}
+  .pcell .ptext:hover{color:#5ea2ff}
+  .pcell .ptrans{flex:none;margin-left:auto}
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
   .chk input{accent-color:var(--teal)}
   .tblwrap{overflow-x:auto}
@@ -241,6 +245,7 @@
       <div class="toolrow">
         <button class="btn teal" id="btnRefine" style="width:auto;padding:9px 16px">批量高清重绘勾选项</button>
         <span style="color:var(--dim);font-size:12px">comfly gpt-image-2 · 输出高分辨率细化参考图 → Assets\Models\名称\refined.png</span>
+        <button class="mini" id="btnClearAll2" style="margin-left:auto">清理全部</button>
       </div>
       <div class="toolrow" id="refineCards" style="margin-top:10px;flex-wrap:wrap;gap:10px"></div>
       <input type="file" id="addAssetFile" accept="image/*" style="display:none">
@@ -566,13 +571,15 @@ function toast(msg, isErr){
       .catch(function(e){ toast('识别失败：' + e, true); })
       .then(function(){ btn.disabled = false; btn.textContent = old; });
   });
-  // 清理全部资产
-  document.getElementById('btnClearAll').addEventListener('click', function(){
+  // 清理全部资产（拆分清单 + ②细化卡同步清空）
+  function clearAllItems(){
     if(!items.length){ toast('清单已为空'); return; }
     items = [];
     renderItems();
     toast('已清理全部资产');
-  });
+  }
+  document.getElementById('btnClearAll').addEventListener('click', clearAllItems);
+  document.getElementById('btnClearAll2').addEventListener('click', clearAllItems);
   document.getElementById('btnClearCrop').addEventListener('click', function(){ sel = null; drawCanvas(); });
 
   // 清单渲染
@@ -580,7 +587,6 @@ function toast(msg, isErr){
   function checkedItems(){ return items.filter(function(it){ return it._chk !== false; }); }
   function promptText(it){
     var p = (it._showEn && it.promptEn) ? it.promptEn : (it.prompt || '');
-    if(p.length > 16) return p.slice(0, 16) + '…';
     return p || '（未填写）';
   }
   function ptBtn(it){ return it.promptEn ? (it._showEn ? '显示中文' : '显示英文') : '译英'; }
