@@ -530,7 +530,7 @@ function toast(msg, isErr){
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td><input type="checkbox" class="ichk" data-i="'+idx+'" checked></td>' +
-        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.refinedUrl || it.imageData || '') + '" alt=""></td>' +
+        '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></td>' +
         '<td><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></td>' +
         '<td><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></td>' +
         '<td><input class="minp" data-f="prompt" data-i="'+idx+'" value="'+esc(it.prompt || '')+'"></td>' +
@@ -551,8 +551,8 @@ function toast(msg, isErr){
     });
     body.querySelectorAll('.mthumb').forEach(function(t){
       t.addEventListener('click', function(){
-        var it = items[+t.dataset.i]; if(!it || !(it.refinedUrl || it.imageData)) return;
-        document.getElementById('thumbFull').src = it.refinedUrl || it.imageData;
+        var it = items[+t.dataset.i]; if(!it || !it.imageData) return;
+        document.getElementById('thumbFull').src = it.imageData;
         document.getElementById('thumbOverlay').classList.add('on');
       });
     });
