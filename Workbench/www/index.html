@@ -226,8 +226,8 @@
         <table class="mlist" id="itemTable">
           <thead><tr>
             <th style="width:30px"><input type="checkbox" id="chkAll" checked></th>
-            <th style="width:64px">缩略图</th><th style="width:120px">名称</th><th style="width:90px">类别</th>
-            <th>建模描述 prompt</th><th style="width:90px">② 细化</th><th style="width:90px">③ Tripo</th>
+            <th style="width:64px">缩略图</th><th style="width:110px">中文名</th><th style="width:130px">英文名（UE导入）</th><th style="width:90px">类别</th>
+            <th>建模描述（中文）</th><th style="width:90px">② 细化</th><th style="width:90px">③ Tripo</th>
             <th style="width:110px">状态</th><th style="width:52px">操作</th>
           </tr></thead>
           <tbody id="itemBody"></tbody>
@@ -276,6 +276,18 @@
 </div>
 
 <div id="thumbOverlay"><img id="thumbFull" alt=""></div>
+<div id="promptOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:998;align-items:center;justify-content:center;cursor:zoom-out">
+  <div style="background:#151a21;border:1px solid var(--line);border-radius:12px;padding:20px;max-width:720px;width:86vw;max-height:80vh;overflow:auto;cursor:default">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div id="promptOvTitle" style="font-size:15px;font-weight:600;color:#e5e9f0"></div>
+      <button class="mini" id="promptOvClose">关闭 ✕</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--dim);margin-bottom:4px">中文描述</div>
+    <div id="promptOvCn" style="font-size:13px;line-height:1.7;white-space:pre-wrap;margin-bottom:14px;color:#e5e9f0"></div>
+    <div style="font-size:12.5px;color:var(--dim);margin-bottom:4px">英文描述（供 AI 3D 建模）</div>
+    <div id="promptOvEn" style="font-size:13px;line-height:1.7;white-space:pre-wrap;color:#e5e9f0"></div>
+  </div>
+</div>
 <div id="refineOverlay">
   <div class="rovbox">
     <div style="text-align:right;margin-bottom:6px"><button class="mini" id="refineOvClose">关闭 ✕</button></div>
@@ -440,7 +452,12 @@ function toast(msg, isErr){
   // 缩略图放大查看
   var overlay = document.getElementById('thumbOverlay');
   overlay.addEventListener('click', function(){ overlay.classList.remove('on'); });
-  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ overlay.classList.remove('on'); document.getElementById('refineOverlay').classList.remove('on'); } });
+  // 建模描述全文查看
+  var po = document.getElementById('promptOverlay');
+  po.addEventListener('click', function(){ po.classList.remove('on'); });
+  po.querySelector('div').addEventListener('click', function(e){ e.stopPropagation(); });
+  document.getElementById('promptOvClose').addEventListener('click', function(){ po.classList.remove('on'); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ overlay.classList.remove('on'); po.classList.remove('on'); document.getElementById('refineOverlay').classList.remove('on'); } });
 
   // 上传参考图
   var zone = document.getElementById('splitZone');
@@ -526,9 +543,10 @@ function toast(msg, isErr){
   document.getElementById('btnAddManual').addEventListener('click', function(){
     var dataUrl = cropSel();
     if(!dataUrl){ toast('请先在画布上框选物体区域', true); return; }
-    var name = prompt('为该资产命名：', 'Asset' + (items.length + 1));
+    var name = prompt('为该资产命名（中文名）：', '资产' + (items.length + 1));
     if(name === null) return;
-    addItem({ id: 'it_' + Date.now() + '_' + items.length, name: (name || ('Asset' + (items.length + 1))).trim(), category: '其他', prompt: '', imageData: dataUrl, source: 'manual' });
+    var nm = (name || ('资产' + (items.length + 1))).trim();
+    addItem({ id: 'it_' + Date.now() + '_' + items.length, name: nm, nameCn: nm, category: '其他', prompt: '', imageData: dataUrl, source: 'manual' });
     sel = null; drawCanvas();
   });
   // 手动框选：AI 识别反推（英文名称 + 类别 + 建模提示词）
@@ -541,9 +559,9 @@ function toast(msg, isErr){
       .then(function(r){
         if(!r.ok){ toast('识别失败：' + (r.error || ''), true); return; }
         var nm = String(r.name || '').trim() || ('Asset' + (items.length + 1));
-        addItem({ id: 'it_' + Date.now() + '_' + items.length, name: nm, category: r.category || '其他', prompt: r.prompt || '', imageData: dataUrl, source: 'manual' });
+        addItem({ id: 'it_' + Date.now() + '_' + items.length, name: nm, nameCn: r.nameCn || nm, category: r.category || '其他', prompt: r.prompt || '', imageData: dataUrl, source: 'manual' });
         sel = null; drawCanvas();
-        sLog('importLog', '框选识别完成：' + nm + '（' + (r.category || '其他') + '）已加入清单');
+        sLog('importLog', '框选识别完成：' + (r.nameCn || nm) + ' / ' + nm + '（' + (r.category || '其他') + '）已加入清单');
       })
       .catch(function(e){ toast('识别失败：' + e, true); })
       .then(function(){ btn.disabled = false; btn.textContent = old; });
@@ -560,6 +578,12 @@ function toast(msg, isErr){
   // 清单渲染
   function addItem(it){ items.push(it); renderItems(); }
   function checkedItems(){ return items.filter(function(it){ return it._chk !== false; }); }
+  function promptText(it){
+    var p = (it._showEn && it.promptEn) ? it.promptEn : (it.prompt || '');
+    if(p.length > 16) return p.slice(0, 16) + '…';
+    return p || '（未填写）';
+  }
+  function ptBtn(it){ return it.promptEn ? (it._showEn ? '显示中文' : '显示英文') : '译英'; }
   function renderItems(){
     var body = document.getElementById('itemBody');
     body.innerHTML = '';
@@ -572,9 +596,10 @@ function toast(msg, isErr){
       tr.innerHTML =
         '<td><input type="checkbox" class="ichk" data-i="'+idx+'" checked></td>' +
         '<td><img class="mthumb" data-i="'+idx+'" src="' + (it.imageData || '') + '" alt=""></td>' +
+        '<td><input class="minp" data-f="nameCn" data-i="'+idx+'" value="'+esc(it.nameCn || '')+'"></td>' +
         '<td><input class="minp" data-f="name" data-i="'+idx+'" value="'+esc(it.name)+'"></td>' +
         '<td><select class="mcat" data-f="category" data-i="'+idx+'">' + cats.map(function(c){ return '<option'+(it.category === c ? ' selected' : '')+'>'+c+'</option>'; }).join('') + '</select></td>' +
-        '<td><input class="minp" data-f="prompt" data-i="'+idx+'" value="'+esc(it.prompt || '')+'"></td>' +
+        '<td><div class="pcell"><span class="ptext" data-i="'+idx+'" title="点击查看全部文本">'+esc(promptText(it))+'</span><button class="mini ptrans" data-i="'+idx+'">'+ptBtn(it)+'</button></div></td>' +
         '<td><span class="st '+(it.refined ? 'ok' : 'idle')+'">'+(it.refined ? '已细化' : '未细化')+'</span></td>' +
         '<td><span class="st '+(it.tripoStatus ? (it.tripoStatus === 'success' ? 'ok' : (it.tripoStatus === 'error' ? 'error' : 'running')) : 'idle')+'">'+(it.tripoStatus || '未生成')+'</span></td>' +
         '<td><span class="st" data-s="'+idx+'">'+(it.statusText || '待处理')+'</span></td>' +
@@ -595,6 +620,37 @@ function toast(msg, isErr){
         var it = items[+t.dataset.i]; if(!it || !it.imageData) return;
         document.getElementById('thumbFull').src = it.imageData;
         document.getElementById('thumbOverlay').classList.add('on');
+      });
+    });
+    // 建模描述：点击展示全部文本
+    body.querySelectorAll('.ptext').forEach(function(sp){
+      sp.addEventListener('click', function(){
+        var it = items[+sp.dataset.i]; if(!it) return;
+        document.getElementById('promptOvTitle').textContent = (it.nameCn || '') + ' / ' + it.name;
+        document.getElementById('promptOvCn').textContent = it.prompt || '（未填写中文描述）';
+        document.getElementById('promptOvEn').textContent = it.promptEn || '（尚未翻译，点行内「译英」生成英文描述）';
+        document.getElementById('promptOverlay').classList.add('on');
+      });
+    });
+    // 建模描述：中文 ↔ 英文翻译切换
+    body.querySelectorAll('.ptrans').forEach(function(bt){
+      bt.addEventListener('click', function(){
+        var it = items[+bt.dataset.i]; if(!it) return;
+        if(!it.promptEn){
+          if(!it.prompt){ toast('请先填写中文描述', true); return; }
+          bt.disabled = true; bt.textContent = '翻译中…';
+          post('/api/split/translate', { text: it.prompt })
+            .then(function(r){
+              if(!r.ok){ toast('翻译失败：' + (r.error || ''), true); return; }
+              it.promptEn = r.translated; it._showEn = true;
+              sLog('importLog', '已翻译：' + it.name + ' 英文描述已生成');
+            })
+            .catch(function(e){ toast('翻译失败：' + e, true); })
+            .then(function(){ renderItems(); });
+          return;
+        }
+        it._showEn = !it._showEn;
+        renderItems();
       });
     });
     body.querySelectorAll('[data-del]').forEach(function(btn){
@@ -644,7 +700,7 @@ function toast(msg, isErr){
               thumb = c.toDataURL('image/png');
             }
           }
-          return { id: 'it_' + ts + '_' + (seq++), name: x.name, category: x.category || '其他', prompt: x.prompt || '', imageData: thumb, source: 'ai' };
+          return { id: 'it_' + ts + '_' + (seq++), name: x.name, nameCn: x.nameCn || x.name, category: x.category || '其他', prompt: x.prompt || '', imageData: thumb, source: 'ai' };
         }
         var done = 0, idx = 0;
         function addWithThumb(x, bbox){ addItem(makeAiItem(x, bbox)); done++; if(idx < list.length) next(); else if(done >= list.length) sLog('importLog', 'AI 拆分 + 精化定位完成：' + list.length + ' 项已加入清单'); }
@@ -745,7 +801,7 @@ function toast(msg, isErr){
         '<label class="rchk" title="勾选后参与③模型生成"><input type="checkbox" class="rchkin" data-i="'+idx+'" ' + (it.refineChk === false ? '' : 'checked') + '></label>' +
         '<button class="rdel" title="删除此资产">✕</button>' +
         '<img src="' + (it.refinedUrl || it.imageData || '') + '" alt="">' +
-        '<div class="rn">' + esc(it.name) + '</div>' +
+        '<div class="rn">' + esc(it.nameCn ? (it.nameCn + ' / ' + it.name) : it.name) + '</div>' +
         '<div class="rtag ' + (it.refined ? 'ok' : 'idle') + '">' + (it.refined ? '已细化' : '未细化') + '</div>';
       card.querySelector('img').addEventListener('click', function(){ openRefineOv(it); });
       card.querySelector('.rchkin').addEventListener('change', function(){ it.refineChk = this.checked; });

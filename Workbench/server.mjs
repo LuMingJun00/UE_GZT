@@ -316,8 +316,8 @@ async function handleApi(req, res, url) {
     const cfg = loadConfig();
     if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
     const base = body.promptTemplate || cfg.prompts?.splitSystem || "";
-    // 附加要求：资产名称用英文，方便后续 UE 建模/导入使用英文命名（不改动用户保存的模板原文）
-    const system = base + "\n【附加要求】资产名称 name 字段必须使用英文（English），例如 Wooden Box、Red Cube、Stone Pillar；类别 category 使用中文。";
+    // 附加要求：名称中英双份（name=英文，最终导入 UE 用；nameCn=中文）、建模描述用中文（不改动用户保存的模板原文）
+    const system = base + "\n【附加要求】每项资产必须输出：name 字段=英文名称（English，如 Wooden Box、Red Cube、Stone Pillar，最终用于 UE 导入）；nameCn 字段=中文名称；category 字段=中文类别；prompt 字段=中文建模描述（描述形状/材质/颜色/细节，50 词以内）。";
     const imageInput = body.imageData || body.imageUrl;
     if (!imageInput) { sendJson(res, 400, { ok: false, error: "缺少参考图" }); return true; }
     try {
@@ -338,7 +338,23 @@ async function handleApi(req, res, url) {
     if (!imageInput) { sendJson(res, 400, { ok: false, error: "缺少框选区域图片" }); return true; }
     try {
       const info = await comflyRecognize(cfg, imageInput);
-      sendJson(res, 200, { ok: true, name: info.name, category: info.category, prompt: info.prompt });
+      sendJson(res, 200, { ok: true, name: info.name, nameCn: info.nameCn, category: info.category, prompt: info.prompt });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  // 建模描述翻译（中文 → 英文，供 AI 3D 建模使用）
+  if (path === "/api/split/translate") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const text = String(body.text || "").trim();
+    if (!text) { sendJson(res, 400, { ok: false, error: "缺少待翻译文本" }); return true; }
+    try {
+      const translated = await comflyTranslate(cfg, text);
+      sendJson(res, 200, { ok: true, translated });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
     }
@@ -605,7 +621,8 @@ async function comflySplit(cfg, systemPrompt, imageInput) {
     }
     return {
       id: "item_" + Date.now() + "_" + i,
-      name: String(x.name || ("资产" + (i + 1))),
+      name: String(x.name || ("Asset" + (i + 1))),
+      nameCn: String(x.nameCn || x.name || ("资产" + (i + 1))),
       prompt: String(x.prompt || ""),
       category: String(x.category || "其他"),
       bbox,
@@ -614,7 +631,7 @@ async function comflySplit(cfg, systemPrompt, imageInput) {
 }
 
 async function comflyRecognize(cfg, imageInput) {
-  const system = "你是资产识别专家。识别图片中的主体物体，输出一个 JSON 对象：{\"name\":\"英文名称\",\"category\":\"类别\",\"prompt\":\"3D建模描述\"}。要求：name 必须使用英文（English）且简洁（1-4 个单词，如 Wooden Box、Red Cube、Stone Pillar）；category 从 家具/道具/建筑/植被/其他 中选择；prompt 用英文描述该物体的形状、材质、颜色、细节，50 词以内，适合作为 AI 3D 建模的输入。只输出 JSON 对象，不要输出任何解释或 markdown。";
+  const system = "你是资产识别专家。识别图片中的主体物体，输出一个 JSON 对象：{\"name\":\"英文名称\",\"nameCn\":\"中文名称\",\"category\":\"类别\",\"prompt\":\"中文建模描述\"}。要求：name 使用英文（English）且简洁（1-4 个单词，如 Wooden Box、Red Cube、Stone Pillar，最终用于 UE 导入）；nameCn 使用中文名称；category 从 家具/道具/建筑/植被/其他 中选择；prompt 用中文描述该物体的形状、材质、颜色、细节，50 词以内，适合作为 AI 3D 建模的输入。只输出 JSON 对象，不要输出任何解释或 markdown。";
   const body = {
     model: cfg.comfly.visionModel || "gpt-4o",
     messages: [
@@ -644,9 +661,32 @@ async function comflyRecognize(cfg, imageInput) {
   if (!obj || typeof obj !== "object") throw new Error("AI 未返回有效识别结果");
   return {
     name: String(obj.name || "").trim() || "Asset",
+    nameCn: String(obj.nameCn || "").trim() || String(obj.name || "").trim() || "资产",
     category: ["家具", "道具", "建筑", "植被", "其他"].includes(String(obj.category || "").trim()) ? String(obj.category).trim() : "其他",
     prompt: String(obj.prompt || "").trim(),
   };
+}
+
+async function comflyTranslate(cfg, text) {
+  const system = "你是中英翻译助手。将用户输入翻译为英文，直接输出翻译结果，不要输出任何解释、引号或 markdown。";
+  const body = {
+    model: cfg.comfly.visionModel || "gpt-4o",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: String(text || "").trim() },
+    ],
+    max_tokens: 400,
+  };
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.comfly.apiKey },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 翻译失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 200)));
+  const out = j.choices?.[0]?.message?.content || "";
+  if (!out.trim()) throw new Error("AI 未返回翻译结果");
+  return out.trim();
 }
 
 async function comflyLocateBbox(cfg, imageInput, objectName) {
