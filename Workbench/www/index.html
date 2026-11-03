@@ -470,7 +470,21 @@ function toast(msg, isErr){
 
   function sLog(id, msg){ var el = document.getElementById(id); if(!el) return; el.textContent = msg + '\n' + el.textContent.split('\n').slice(0,19).join('\n'); }
   function api(path, opts){ return fetch(path, opts || {}).then(function(r){ return r.json(); }); }
-  function post(path, body, tries){ var n = tries || 0; return fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) }).then(function(r){ return r.json(); }).catch(function(e){ if(n < 1) return post(path, body, n + 1); throw e; }); }
+  function post(path, body, opts){
+    opts = opts || {};
+    var ms = opts.timeoutMs || 120000;
+    var n = opts.tries || 0;
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, ms);
+    return fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}), signal: ctrl.signal })
+      .then(function(r){ clearTimeout(timer); return r.json(); })
+      .catch(function(e){
+        clearTimeout(timer);
+        if(e && e.name === 'AbortError') throw new Error('请求超时（' + Math.round(ms / 1000) + 's），请检查网络或稍后重试');
+        if(n < 1) return post(path, body, { tries: n + 1, timeoutMs: ms });
+        throw e;
+      });
+  }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   // 初始化：配置 + MCP 状态
@@ -825,7 +839,7 @@ function toast(msg, isErr){
     if(!list.length){ toast('请先勾选要细化的资产（在①拆分清单勾选）'); return; }
     var btn = this; btn.disabled = true; btn.textContent = '细化中…';
     var tpl = document.getElementById('refinePrompt').value.trim();
-    post('/api/refine', { items: list.map(function(it){ return { id: it.id, name: it.name, imageData: it.imageData }; }), template: tpl })
+    post('/api/refine', { items: list.map(function(it){ return { id: it.id, name: it.name, imageData: it.imageData }; }), template: tpl }, { timeoutMs: 600000 })
       .then(function(r){
         if(!r.ok){ sLog('refineLog', '细化失败：' + (r.error || '')); return; }
         r.results.forEach(function(res){
@@ -1035,11 +1049,14 @@ function toast(msg, isErr){
   }
   function runRefine(btn, payload, it, prompt){
     if(!prompt){ toast('请填写细化提示词', true); return; }
-    var oldTxt = btn.textContent; btn.disabled = true; btn.textContent = '生成中…';
-    post('/api/refine/regen', payload)
+    var otherBtn = btn.id === 'btnRefineRegen' ? document.getElementById('btnRefineFromSel') : document.getElementById('btnRefineRegen');
+    var oldTxt = btn.textContent, otherOld = otherBtn.textContent;
+    btn.disabled = true; btn.textContent = '生成中…';
+    otherBtn.disabled = true;
+    post('/api/refine/regen', payload, { timeoutMs: 180000 })
       .then(function(r){ afterRefineDone(r, it, prompt); })
       .catch(function(e){ sLog('refineLog', '生成失败：' + e); })
-      .then(function(){ btn.disabled = false; btn.textContent = oldTxt; });
+      .then(function(){ btn.disabled = false; btn.textContent = oldTxt; otherBtn.disabled = false; otherBtn.textContent = otherOld; });
   }
   document.getElementById('btnRefineRegen').addEventListener('click', function(){
     if(!refineOvCur) return;
@@ -1068,7 +1085,7 @@ function toast(msg, isErr){
     var list = checkedItems().filter(function(it){ return it.refineChk !== false; });
     if(!list.length){ toast('请先在②资产高清化区域勾选要建模的资产'); return; }
     var btn = this; btn.disabled = true; btn.textContent = '提交中…';
-    post('/api/tripo/generate', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category }; }) })
+    post('/api/tripo/generate', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category }; }) }, { timeoutMs: 600000 })
       .then(function(r){
         if(!r.ok){ sLog('tripoLog', '提交失败：' + (r.error || '')); return; }
         r.results.forEach(function(res){
@@ -1114,7 +1131,7 @@ function toast(msg, isErr){
     var list = items.filter(function(it){ return it.tripoStatus === 'success'; });
     if(!list.length){ toast('还没有已完成的模型，请先等待生成完毕', true); return; }
     var btn = this; btn.disabled = true; btn.textContent = '下载中…';
-    post('/api/tripo/download', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category, task_id: it.taskId }; }) })
+    post('/api/tripo/download', { items: list.map(function(it){ return { id: it.id, name: it.name, category: it.category, task_id: it.taskId }; }) }, { timeoutMs: 300000 })
       .then(function(r){
         if(!r.ok){ sLog('tripoLog', '下载失败：' + (r.error || '')); return; }
         r.results.forEach(function(res){

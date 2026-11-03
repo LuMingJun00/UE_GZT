@@ -60,21 +60,29 @@ function detectSystemProxy() {
 }
 const tripoProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || detectSystemProxy();
 async function proxyFetch(url, opts = {}) {
-  if (!tripoProxyUrl) return fetch(url, opts);
+  if (!tripoProxyUrl) return fetch(url, Object.assign({}, opts, { signal: opts.signal || AbortSignal.timeout(opts.timeoutMs || 120000) }));
   const u = new URL(url);
   const p = new URL(tripoProxyUrl);
   let body = opts.body;
   let headers = Object.assign({}, opts.headers || {});
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { sock.destroy(); } catch (e) {}
+      reject(new Error("请求超时（" + Math.round((opts.timeoutMs || 120000) / 1000) + "s）：" + u.host));
+    }, opts.timeoutMs || 120000);
+    function done(fn, val){ if(settled) return; settled = true; clearTimeout(timer); fn(val); }
     const sock = connect(Number(p.port || 80), p.hostname, () => {
       sock.write(`CONNECT ${u.host}:443 HTTP/1.1\r\nHost: ${u.host}:443\r\n\r\n`);
     });
-    sock.on("error", reject);
+    sock.on("error", function(e){ done(reject, e); });
     const onData = (chunk) => {
       const m = chunk.toString().match(/^HTTP\/1\.[01] (\d{3})/);
       if (!m) return;
       sock.removeListener("data", onData);
-      if (m[1] !== "200") { reject(new Error("代理 CONNECT 失败 HTTP " + m[1])); sock.destroy(); return; }
+      if (m[1] !== "200") { done(reject, new Error("代理 CONNECT 失败 HTTP " + m[1])); sock.destroy(); return; }
       const tlsSock = tls.connect({ socket: sock, servername: u.host }, () => {
         const req = httpsRequest({
           host: u.host, path: u.pathname + u.search, method: opts.method || "GET", headers,
@@ -84,7 +92,7 @@ async function proxyFetch(url, opts = {}) {
           res.on("data", (c) => chunks.push(c));
           res.on("end", () => {
             const buf = Buffer.concat(chunks);
-            resolve({
+            done(resolve, {
               ok: res.statusCode >= 200 && res.statusCode < 300,
               status: res.statusCode,
               statusText: res.statusMessage,
@@ -93,12 +101,13 @@ async function proxyFetch(url, opts = {}) {
               arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
             });
           });
+          res.on("error", function(e){ done(reject, e); });
         });
-        req.on("error", reject);
+        req.on("error", function(e){ done(reject, e); });
         if (body) req.write(body);
         req.end();
       });
-      tlsSock.on("error", reject);
+      tlsSock.on("error", function(e){ done(reject, e); });
     };
     sock.on("data", onData);
   });
@@ -579,7 +588,7 @@ function saveBase64Image(dataUrl, filePath) {
 
 async function downloadUrlToFile(url, filePath, proxyUrl) {
   const useProxy = proxyUrl || tripoProxyUrl;
-  const r = useProxy ? await proxyFetch(url, {}) : await fetch(url, { timeout: 120000 });
+  const r = useProxy ? await proxyFetch(url, { timeoutMs: 120000 }) : await fetch(url, { signal: AbortSignal.timeout(120000) });
   if (!r.ok) throw new Error("下载失败 HTTP " + r.status + " " + url);
   const buf = Buffer.from(await r.arrayBuffer());
   mkdirSync(dirname(filePath), { recursive: true });
