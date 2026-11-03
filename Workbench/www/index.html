@@ -231,7 +231,7 @@
           <thead><tr>
             <th style="width:28px"><input type="checkbox" id="chkAll" checked></th>
             <th style="width:50px">缩略图</th><th style="width:72px">中文名</th><th style="width:95px">英文名（UE导入）</th><th style="width:68px">类别</th>
-            <th style="width:220px">建模描述（中文）</th><th style="width:58px">② 细化</th><th style="width:58px">③ Tripo</th>
+            <th style="width:180px">建模描述（中文）</th><th style="width:58px">② 细化</th><th style="width:58px">③ Tripo</th>
             <th style="width:80px">状态</th><th style="width:48px">操作</th>
           </tr></thead>
           <tbody id="itemBody"></tbody>
@@ -281,7 +281,7 @@
 </div>
 
 <div id="thumbOverlay"><img id="thumbFull" alt=""></div>
-<div id="promptOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:998;align-items:center;justify-content:center;cursor:zoom-out">
+<div id="promptOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center;cursor:zoom-out">
   <div style="background:#151a21;border:1px solid var(--line);border-radius:12px;padding:20px;max-width:720px;width:86vw;max-height:80vh;overflow:auto;cursor:default">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div id="promptOvTitle" style="font-size:15px;font-weight:600;color:#e5e9f0"></div>
@@ -589,7 +589,7 @@ function toast(msg, isErr){
     var p = (it._showEn && it.promptEn) ? it.promptEn : (it.prompt || '');
     return p || '（未填写）';
   }
-  function ptBtn(it){ return it.promptEn ? (it._showEn ? '显示中文' : '显示英文') : '译英'; }
+  function ptBtn(it){ return it._showEn ? '译中' : '译英'; }
   function renderItems(){
     var body = document.getElementById('itemBody');
     body.innerHTML = '';
@@ -628,9 +628,12 @@ function toast(msg, isErr){
         document.getElementById('thumbOverlay').classList.add('on');
       });
     });
-    // 建模描述：点击展示全部文本
-    body.querySelectorAll('.ptext').forEach(function(sp){
-      sp.addEventListener('click', function(){
+    // 建模描述：整格点击展示全部文本（译英按钮除外）
+    body.querySelectorAll('.pcell').forEach(function(pc){
+      pc.addEventListener('click', function(e){
+        if(e.target.classList && e.target.classList.contains('ptrans')) return;
+        var sp = pc.querySelector('.ptext');
+        if(!sp) return;
         var it = items[+sp.dataset.i]; if(!it) return;
         document.getElementById('promptOvTitle').textContent = (it.nameCn || '') + ' / ' + it.name;
         document.getElementById('promptOvCn').textContent = it.prompt || '（未填写中文描述）';
