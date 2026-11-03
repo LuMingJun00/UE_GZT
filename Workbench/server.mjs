@@ -382,6 +382,8 @@ async function handleApi(req, res, url) {
       const ts = Date.now();
       const dest = join(MODEL_ROOT, name, "refined_" + ts + ".png");
       await downloadUrlToFile(url, dest);
+      // 同步覆盖主图 refined.png：保证步骤①缩略图 / ③建模使用的都是最新生成图
+      writeFileSync(join(MODEL_ROOT, name, "refined.png"), readFileSync(dest));
       sendJson(res, 200, { ok: true, path: dest, localUrl: "/assets/Models/" + name + "/refined_" + ts + ".png", ts });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
