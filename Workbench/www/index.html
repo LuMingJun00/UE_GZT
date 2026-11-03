@@ -98,7 +98,7 @@
   .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--sub);cursor:pointer}
   .chk input{accent-color:var(--teal)}
   .tblwrap{overflow-x:auto}
-  table.mlist{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}
+  table.mlist{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px;table-layout:fixed}
   table.mlist th,table.mlist td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:middle}
   table.mlist th{background:var(--panel2);color:var(--sub);font-weight:700;white-space:nowrap}
   .mthumb{width:52px;height:52px;object-fit:contain;border-radius:6px;border:1px solid var(--line);background:#0d1014;display:block;cursor:pointer}
@@ -229,10 +229,10 @@
       <div class="tblwrap">
         <table class="mlist" id="itemTable">
           <thead><tr>
-            <th style="width:30px"><input type="checkbox" id="chkAll" checked></th>
-            <th style="width:64px">缩略图</th><th style="width:110px">中文名</th><th style="width:130px">英文名（UE导入）</th><th style="width:90px">类别</th>
-            <th>建模描述（中文）</th><th style="width:90px">② 细化</th><th style="width:90px">③ Tripo</th>
-            <th style="width:110px">状态</th><th style="width:52px">操作</th>
+            <th style="width:28px"><input type="checkbox" id="chkAll" checked></th>
+            <th style="width:50px">缩略图</th><th style="width:72px">中文名</th><th style="width:95px">英文名（UE导入）</th><th style="width:68px">类别</th>
+            <th style="width:200px">建模描述（中文）</th><th style="width:58px">② 细化</th><th style="width:58px">③ Tripo</th>
+            <th style="width:80px">状态</th><th style="width:48px">操作</th>
           </tr></thead>
           <tbody id="itemBody"></tbody>
         </table>
