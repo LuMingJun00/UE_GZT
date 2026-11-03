@@ -90,6 +90,10 @@
   .cand img{width:100%;height:72px;object-fit:contain;border-radius:5px;background:#161b22;display:block}
   .cand .cn{font-size:10.5px;color:var(--dim);margin-top:4px}
   .cand .cur{position:absolute;top:-8px;right:-8px;background:#2aa96f;color:#fff;font-size:10px;border-radius:8px;padding:1px 6px}
+  .cand.cmp{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6}
+  .cand .ccmpbtn{width:100%;margin-top:4px;background:#16263d;border:1px solid #2f5da8;color:#7db4ff;font-size:11px;border-radius:5px;padding:3px 0;cursor:pointer}
+  .cand.cmp .ccmpbtn{background:#1d4ed8;border-color:#3b82f6;color:#fff}
+  .cand .ccmpbtn:hover{border-color:#5b9bff}
   .toolrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
   .pcell{display:flex;align-items:center;gap:6px;width:100%;min-width:0}
   .pcell .ptext{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:#e5e9f0;font-size:12.5px}
@@ -307,7 +311,7 @@
       <img id="refineOvOrig" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:fill;border-radius:8px;background:#0d1014;display:block">
       <img id="refineOvImg" alt="" style="position:relative;max-width:100%;max-height:72vh;object-fit:contain;border-radius:8px;background:#0d1014;display:block;margin:0 auto;clip-path:inset(0 0 0 0)">
       <div id="rovDivider" style="position:absolute;top:0;bottom:0;left:100%;width:2px;background:#ffd23e;box-shadow:0 0 8px rgba(0,0,0,.8);display:none;pointer-events:none"></div>
-      <div style="position:absolute;left:50%;bottom:8px;transform:translateX(-50%);color:#ffd23e;font-size:12px;background:rgba(0,0,0,.6);padding:3px 10px;border-radius:20px;pointer-events:none">按住拖动对比原图（左新图 / 右原图）· 双击锁定</div>
+      <div style="position:absolute;left:50%;bottom:8px;transform:translateX(-50%);color:#ffd23e;font-size:12px;background:rgba(0,0,0,.6);padding:3px 10px;border-radius:20px;pointer-events:none">按住拖动对比（左原图 / 右新图）· 双击锁定</div>
     </div>
     <div id="refineOvInfo" style="color:var(--dim);font-size:12px;margin:8px 2px"></div>
     <textarea id="refineOvPrompt" class="minp" rows="2" placeholder="细化提示词（可编辑；留空则使用已保存的模板）"></textarea>
@@ -813,17 +817,17 @@ function toast(msg, isErr){
   // ②-1 细化结果区：资产卡片（勾选参与下一步）/ 点击放大 / 重新生成 / 候选替换 / 添加资产
   var refineOvCur = null;
   // 放大面板：当前主图 / 原图（裁剪图）/ 对比模式（hold=拖动中 lock=锁定对比）
-  var ovCurSrc = '', ovOrigSrc = '', ovCmp = null;
+  var ovCurSrc = '', ovOrigSrc = '', ovCmpSrc = '', ovCmp = null;
   function setOvImg(src){ var im = document.getElementById('refineOvImg'); if(im && src) im.src = src; }
   function setOvOrig(src){ var im = document.getElementById('refineOvOrig'); if(im && src) im.src = src; }
   function ovClip(x){
-    // x: 0-100，左侧为当前图（新图），右侧为原图；x=100 时仅显示当前图
+    // x: 0-100，上层为原图（旧图），保留左侧 x%；底层为新图（右侧露出）；x=0 时仅显示新图
     var im = document.getElementById('refineOvImg');
     var d = document.getElementById('rovDivider');
-    if(x >= 100){ if(im) im.style.clipPath = 'inset(0 0 0 0)'; if(d) d.style.display = 'none'; }
+    if(x <= 0){ if(im) im.style.clipPath = 'inset(0 100% 0 0)'; if(d) d.style.display = 'none'; }
     else { if(im) im.style.clipPath = 'inset(0 ' + (100 - x) + '% 0 0)'; if(d){ d.style.display = 'block'; d.style.left = x + '%'; } }
   }
-  function ovShowCur(){ ovClip(100); }
+  function ovShowCur(){ ovClip(0); }
   function ovSetLock(on){
     ovCmp = on ? 'lock' : null;
     if(on) ovClip(50); else ovShowCur();
@@ -883,8 +887,9 @@ function toast(msg, isErr){
     refineOvCur = it;
     ovCurSrc = it.refinedUrl || it.imageData || '';
     ovOrigSrc = it.imageData || '';
+    ovCmpSrc = ovCurSrc;
     ovCmp = null;
-    setOvImg(ovCurSrc); setOvOrig(ovOrigSrc); ovShowCur();
+    setOvImg(ovOrigSrc); setOvOrig(ovCmpSrc); ovShowCur();
     document.getElementById('refineOvInfo').textContent = '资产：' + it.name + ' · 当前图片 → Assets\\Models\\' + it.name + '\\refined.png';
     // 默认展示生成当前图片所用的提示词（无记录则用模板），修改后点「重新生成」直接提交
     document.getElementById('refineOvPrompt').value = it.lastPrompt || document.getElementById('refinePrompt').value;
@@ -919,31 +924,65 @@ function toast(msg, isErr){
       ovSetLock(ovCmp !== 'lock');
     });
   })();
+  function markCmpCards(){
+    document.querySelectorAll('#refineOvCands .cand').forEach(function(d){
+      d.classList.toggle('cmp', d.dataset.cmpsrc === ovCmpSrc);
+    });
+  }
+  function pickCmp(src){
+    ovCmpSrc = src;
+    setOvOrig(src);
+    markCmpCards();
+  }
+  function buildCandCard(src, label, badge, badgeColor, selectable, c){
+    var d = document.createElement('div');
+    d.className = 'cand' + (c && c.primary ? ' on' : '');
+    d.dataset.cmpsrc = src;
+    d.innerHTML =
+      '<img src="' + src + '" alt="">' +
+      '<div class="cn">' + label + '</div>' +
+      '<button class="ccmpbtn">对比图</button>' +
+      (badge ? '<span class="cur"' + (badgeColor ? ' style="background:' + badgeColor + '"' : '') + '>' + badge + '</span>' : '');
+    d.querySelector('.ccmpbtn').addEventListener('click', function(e){
+      e.stopPropagation(); pickCmp(src);
+    });
+    if(selectable){
+      d.addEventListener('click', function(){
+        post('/api/refine/select', { name: refineOvCur.name, path: c.path }).then(function(r2){
+          if(!r2.ok){ toast('替换失败：' + (r2.error || ''), true); return; }
+          var ts2 = Date.now();
+          var newSrc = r2.localUrl + '?t=' + ts2;
+          if(refineOvCur && refineOvCur.name === refineOvCur.name){ refineOvCur.refinedUrl = newSrc; refineOvCur.refinedPath = c.path; refineOvCur.refinedTs = ts2; }
+          ovCurSrc = newSrc; ovCmpSrc = newSrc; setOvImg(ovOrigSrc); setOvOrig(newSrc);
+          renderItems(); loadRefineCands(refineOvCur.name, ts2);
+        });
+      });
+    }
+    return d;
+  }
   function loadRefineCands(name, ts){
     var box = document.getElementById('refineOvCands');
     box.innerHTML = '<span style="color:var(--dim);font-size:12px">候选加载中…</span>';
     post('/api/refine/list', { name: name }).then(function(r){
       box.innerHTML = '';
-      if(!r.ok || !r.list || !r.list.length){ box.innerHTML = '<span style="color:var(--dim);font-size:12px">暂无候选</span>'; return; }
+      // 原图卡片（裁剪图），可选中作为对比图
+      if(refineOvCur && refineOvCur.imageData){
+        box.appendChild(buildCandCard(refineOvCur.imageData, '原图', null, null, false, null));
+      }
+      if(!r.ok || !r.list || !r.list.length){
+        if(!box.children.length) box.innerHTML = '<span style="color:var(--dim);font-size:12px">暂无候选</span>';
+        return;
+      }
       r.list.forEach(function(c, i){
         var stamp = c.primary ? (ts || c.mtimeMs) : (c.mtimeMs || Date.now());
         var src = c.localUrl + '?t=' + stamp;
         var isLatest = !c.primary && i === 0;
-        var d = document.createElement('div'); d.className = 'cand' + (c.primary ? ' on' : '');
-        d.innerHTML = '<img src="' + src + '" alt=""><div class="cn">' + (c.primary ? '当前' : (isLatest ? '最新' : (c.name.replace(/refined_(\d+)\.png/,'#$1') || '候选'))) + '</div>' + (c.primary ? '<span class="cur">当前</span>' : (isLatest ? '<span class="cur" style="background:#f97316">最新</span>' : ''));
-        if(!c.primary){
-          d.addEventListener('click', function(){
-            post('/api/refine/select', { name: name, path: c.path }).then(function(r2){
-              if(!r2.ok){ toast('替换失败：' + (r2.error || ''), true); return; }
-              var ts2 = Date.now();
-              if(refineOvCur && refineOvCur.name === name){ refineOvCur.refinedUrl = r2.localUrl + '?t=' + ts2; refineOvCur.refinedPath = c.path; refineOvCur.refinedTs = ts2; }
-              ovCurSrc = r2.localUrl + '?t=' + ts2; setOvImg(ovCurSrc);
-              renderItems(); loadRefineCands(name, ts2);
-            });
-          });
-        }
-        box.appendChild(d);
+        var label = c.primary ? '当前' : (isLatest ? '最新' : (c.name.replace(/refined_(\d+)\.png/,'#$1') || '候选'));
+        var badge = c.primary ? '当前' : (isLatest ? '最新' : '');
+        var badgeColor = c.primary ? null : '#f97316';
+        box.appendChild(buildCandCard(src, label, badge, badgeColor, !c.primary, c));
       });
+      markCmpCards();
     });
   }
   document.getElementById('btnRefineRegen').addEventListener('click', function(){
@@ -956,7 +995,8 @@ function toast(msg, isErr){
       .then(function(r){
         if(!r.ok){ sLog('refineLog', '重新生成失败：' + (r.error || '')); return; }
         it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedUrl = r.localUrl + '?t=' + r.ts; it.refinedPath = r.path; it.refinedTs = r.ts; it.lastPrompt = prompt;
-        ovCurSrc = r.localUrl + '?t=' + r.ts; setOvImg(ovCurSrc);
+        ovCurSrc = r.localUrl + '?t=' + r.ts; ovCmpSrc = ovCurSrc;
+        setOvImg(ovOrigSrc); setOvOrig(ovCurSrc); ovShowCur();
         renderItems(); loadRefineCands(it.name, r.ts);
         sLog('refineLog', '已重新生成 → ' + r.localUrl);
       })
