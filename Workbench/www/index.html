@@ -51,6 +51,12 @@
   .mini{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:9px 16px;border-radius:9px;font-size:13px;cursor:pointer}
   .mini:hover{border-color:var(--teal)}
   .out{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--sub);white-space:pre-wrap;line-height:1.6;min-height:44px}
+  .logfold{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+  .logfold-head{display:flex;align-items:center;gap:8px;padding:8px 12px}
+  .logfold-last{flex:1;min-width:0;font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .logfold-btn{flex:none;background:none;border:1px solid var(--line);border-radius:6px;color:var(--dim);font-size:11.5px;padding:3px 9px;cursor:pointer}
+  .logfold-btn:hover{color:#fff;border-color:var(--dim)}
+  .logfold-body{margin:0;border:none;border-top:1px solid var(--line);border-radius:0;max-height:260px;overflow:auto;min-height:0}
   .note{background:#241b14;border:1px solid #4a2f1b;color:#ffd9b8;border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.6}
   .foot{color:var(--dim);font-size:11.5px;text-align:center;margin-top:26px;line-height:1.7}
 
@@ -271,7 +277,13 @@
       </div>
       <div class="toolrow" id="refineCards" style="margin-top:10px;flex-wrap:wrap;gap:10px"></div>
       <input type="file" id="addAssetFile" accept="image/*" style="display:none">
-      <div class="out" id="refineLog" style="min-height:28px">待执行。</div>
+      <div class="logfold">
+        <div class="logfold-head">
+          <span class="logfold-last" id="refineLogLast">待执行。</span>
+          <button class="logfold-btn" id="refineLogToggle" type="button">历史 ▾</button>
+        </div>
+        <div class="out logfold-body" id="refineLog" style="display:none">待执行。</div>
+      </div>
     </div>
 
     <div class="sp">
@@ -469,7 +481,21 @@ function toast(msg, isErr){
   var cctx = canvas.getContext('2d');
   var baseImg = null, sel = null, drawing = false;
 
-  function sLog(id, msg){ var el = document.getElementById(id); if(!el) return; el.textContent = msg + '\n' + el.textContent.split('\n').slice(0,19).join('\n'); }
+  function sLog(id, msg){
+    var el = document.getElementById(id); if(!el) return;
+    el.textContent = msg + '\n' + el.textContent.split('\n').slice(0,19).join('\n');
+    if(id === 'refineLog'){ var last = document.getElementById('refineLogLast'); if(last) last.textContent = msg; }
+  }
+  (function(){
+    var btn = document.getElementById('refineLogToggle');
+    var body = document.getElementById('refineLog');
+    if(!btn || !body) return;
+    btn.addEventListener('click', function(){
+      var open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      btn.textContent = open ? '历史 ▾' : '收起 ▸';
+    });
+  })();
   function api(path, opts){ return fetch(path, opts || {}).then(function(r){ return r.json(); }); }
   function post(path, body, opts){
     opts = opts || {};
