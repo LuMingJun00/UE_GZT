@@ -415,10 +415,9 @@ async function handleApi(req, res, url) {
     const prompt = String(body.prompt || "").trim() || cfg.prompts?.refineTemplate || "";
     if (!prompt) { sendJson(res, 400, { ok: false, error: "缺少细化提示词" }); return true; }
     try {
-      // 源图优先级：前端指定候选路径 srcPath > 当前主细化图 refined.png > 前端传入 imageData
       const dir0 = join(MODEL_ROOT, name);
       const current = join(dir0, "refined.png");
-      const tmpImg = join(TMP_DIR, "regen_src_" + name + "_" + Date.now() + ".png");
+      const tmpImg = join(TMP_DIR, "regen_src_" + name + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8) + ".png");
       const srcPath = String(body.srcPath || "").trim();
       mkdirSync(TMP_DIR, { recursive: true });
       if (srcPath) {
@@ -432,8 +431,10 @@ async function handleApi(req, res, url) {
       else if (imageData) saveBase64Image(imageData, tmpImg);
       else throw new Error("缺少源图（无当前细化图且未传源图）");
       const url = await comflyEdits(cfg, tmpImg, prompt);
-      const ts = Date.now();
-      const dest = join(MODEL_ROOT, name, "refined_" + ts + ".png");
+      let ts = Date.now();
+      let dest = join(MODEL_ROOT, name, "refined_" + ts + ".png");
+      // 同资产并发时时间戳可能撞名：递增直到文件名空闲（保持 refined_<数字>.png 命名）
+      while (existsSync(dest)) { ts += 1; dest = join(MODEL_ROOT, name, "refined_" + ts + ".png"); }
       await downloadUrlToFile(url, dest);
       // 同步覆盖主图 refined.png：保证步骤①缩略图 / ③建模使用的都是最新生成图
       writeFileSync(join(MODEL_ROOT, name, "refined.png"), readFileSync(dest));
@@ -795,23 +796,22 @@ async function comflyEdits(cfg, imagePath, prompt) {
 
 async function refineItems(cfg, items, template) {
   mkdirSync(TMP_DIR, { recursive: true });
-  const results = [];
-  for (const it of items) {
+  // 并发执行：每个资产独立请求 comfly，互不阻塞；单个失败不影响其他
+  return Promise.all(items.map(async (it) => {
     const name = sanitizeName(it.name);
-    const tmpImg = join(TMP_DIR, "refine_src_" + name + "_" + Date.now() + ".png");
+    const tmpImg = join(TMP_DIR, "refine_src_" + name + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8) + ".png");
     try {
       if (it.imageData) saveBase64Image(it.imageData, tmpImg);
       else if (it.imagePath && existsSync(it.imagePath)) { mkdirSync(TMP_DIR, { recursive: true }); writeFileSync(tmpImg, readFileSync(it.imagePath)); }
-      else { results.push({ id: it.id, name: it.name, status: "error", error: "缺少细化源图" }); continue; }
+      else return { id: it.id, name: it.name, status: "error", error: "缺少细化源图" };
       const url = await comflyEdits(cfg, tmpImg, template || cfg.prompts?.refineTemplate);
       const dest = join(MODEL_ROOT, name, "refined.png");
       await downloadUrlToFile(url, dest);
-      results.push({ id: it.id, name: it.name, status: "ok", path: dest, url, localUrl: "/assets/Models/" + name + "/refined.png" });
+      return { id: it.id, name: it.name, status: "ok", path: dest, url, localUrl: "/assets/Models/" + name + "/refined.png" };
     } catch (e) {
-      results.push({ id: it.id, name: it.name, status: "error", error: String(e && e.message || e) });
+      return { id: it.id, name: it.name, status: "error", error: String(e && e.message || e) };
     }
-  }
-  return results;
+  }));
 }
 
 async function tripoUpload(cfg, filePath) {

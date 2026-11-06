@@ -87,6 +87,9 @@
   .rcard .rtag{font-size:10px;border-radius:8px;padding:1px 7px;margin-top:4px;display:inline-block}
   .rcard .rtag.ok{background:rgba(42,169,111,.16);color:#5fd08a}
   .rcard .rtag.idle{background:rgba(255,180,79,.12);color:#ffb44f}
+  .rcard .rtag.run{background:rgba(79,140,255,.16);color:#7fb0ff}
+  .rcard .rtag.run::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#4f8cff;margin-right:5px;vertical-align:0;animation:rpulse 1s infinite}
+  @keyframes rpulse{0%,100%{opacity:1}50%{opacity:.25}}
   .rcard .rdel{position:absolute;top:2px;right:2px;z-index:3;width:19px;height:19px;border:none;border-radius:6px;background:rgba(13,16,20,.85);color:var(--red);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
   .rcard .rdel:hover{background:rgba(248,113,113,.18)}
   .rcard.add{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:140px}
@@ -465,7 +468,11 @@ function toast(msg, isErr){
   // 资产持久化：刷新/重开页面后 items（含裁剪图、名称、弹层状态）不丢失
   var LS_KEY = 'ue_workbench_items_v1';
   function persistItems(){
-    try{ localStorage.setItem(LS_KEY, JSON.stringify(items)); }
+    try{
+      // _refining 是运行时态，不写入持久化
+      var clean = items.map(function(it){ var c = Object.assign({}, it); delete c._refining; return c; });
+      localStorage.setItem(LS_KEY, JSON.stringify(clean));
+    }
     catch(e){ console.warn('资产持久化失败（可能存储空间不足）：', e); }
   }
   function loadPersistedItems(){
@@ -476,6 +483,7 @@ function toast(msg, isErr){
     return null;
   }
   var items = loadPersistedItems() || [];
+  items.forEach(function(it){ delete it._refining; });
   renderItems();
   var canvas = document.getElementById('splitCanvas');
   var cctx = canvas.getContext('2d');
@@ -864,23 +872,23 @@ function toast(msg, isErr){
   document.getElementById('btnRefine').addEventListener('click', function(){
     var list = checkedItems();
     if(!list.length){ toast('请先勾选要细化的资产（在①拆分清单勾选）'); return; }
-    var btn = this; btn.disabled = true; btn.textContent = '细化中…';
     var tpl = document.getElementById('refinePrompt').value.trim();
-    post('/api/refine', { items: list.map(function(it){ return { id: it.id, name: it.name, imageData: it.imageData }; }), template: tpl }, { timeoutMs: 600000 })
-      .then(function(r){
-        if(!r.ok){ sLog('refineLog', '细化失败：' + (r.error || '')); return; }
-        r.results.forEach(function(res){
-          var it = items.find(function(x){ return x.id === res.id; });
-          if(!it) return;
-          if(res.status === 'ok'){ it.refined = true; it.status = 'ok'; it.statusText = '已细化'; it.refinedPath = res.path; it.refinedUrl = res.localUrl + '?t=' + Date.now(); if(tpl) it.lastPrompt = tpl; }
-          else { it.status = 'error'; it.statusText = '细化失败'; }
-        });
-        renderItems();
-        var okN = r.results.filter(function(x){ return x.status === 'ok'; }).length;
-        sLog('refineLog', '细化完成：' + okN + '/' + r.results.length + ' 成功 → Assets\\Models\\<名称>\\refined.png（本地保存）');
-      })
-      .catch(function(e){ sLog('refineLog', '细化失败：' + e); })
-      .then(function(){ btn.disabled = false; btn.textContent = '批量高清重绘勾选项'; });
+    if(!tpl){ toast('请填写细化提示词', true); return; }
+    // 已在跑的资产不重复派发，其余全部同时开跑
+    var todo = list.filter(function(it){ return !it._refining; });
+    if(!todo.length){ toast('勾选的资产都在生成中', true); return; }
+    var btn = this, total = todo.length, done = 0;
+    btn.disabled = true; btn.textContent = '细化中（0/' + total + '）';
+    var jobs = todo.map(function(it){
+      return runRefineOne(it, tpl).then(function(){
+        done++; btn.textContent = '细化中（' + done + '/' + total + '）';
+      });
+    });
+    Promise.all(jobs).then(function(){
+      btn.disabled = false; btn.textContent = '批量高清重绘勾选项';
+      var okN = todo.filter(function(it){ return it.refined; }).length;
+      sLog('refineLog', '批量细化结束：' + okN + '/' + total + ' 成功 → Assets\\Models\\<名称>\\refined.png');
+    });
   });
 
   // ②-1 细化结果区：资产卡片（勾选参与下一步）/ 点击放大 / 重新生成 / 候选替换 / 添加资产
@@ -914,12 +922,14 @@ function toast(msg, isErr){
     box.innerHTML = '';
     items.forEach(function(it, idx){
       var card = document.createElement('div'); card.className = 'rcard';
+      var tagCls = it._refining ? 'run' : (it.refined ? 'ok' : 'idle');
+      var tagTxt = it._refining ? '生成中…' : (it.refined ? '已细化' : '未细化');
       card.innerHTML =
         '<label class="rchk" title="勾选后参与③模型生成"><input type="checkbox" class="rchkin" data-i="'+idx+'" ' + (it.refineChk === false ? '' : 'checked') + '></label>' +
         '<button class="rdel" title="删除此资产">✕</button>' +
         '<img src="' + (it.refinedUrl || it.imageData || '') + '" alt="">' +
         '<div class="rn">' + esc(it.nameCn ? (it.nameCn + ' / ' + it.name) : it.name) + '</div>' +
-        '<div class="rtag ' + (it.refined ? 'ok' : 'idle') + '">' + (it.refined ? '已细化' : '未细化') + '</div>';
+        '<div class="rtag ' + tagCls + '">' + tagTxt + '</div>';
       card.querySelector('img').addEventListener('click', function(){ openRefineOv(it); });
       card.querySelector('.rchkin').addEventListener('change', function(){ it.refineChk = this.checked; });
       card.querySelector('.rdel').addEventListener('click', function(ev){ ev.stopPropagation(); items.splice(idx, 1); renderItems(); renderRefineCards(); });
@@ -964,6 +974,9 @@ function toast(msg, isErr){
     ovCmp = null;
     document.getElementById('refineOvInfo').textContent = '资产：' + it.name + ' · 当前图片 → Assets\\Models\\' + it.name + '\\refined.png';
     document.getElementById('refineOvPrompt').value = it.lastPrompt || document.getElementById('refinePrompt').value;
+    var regenBtn = document.getElementById('btnRefineRegen');
+    regenBtn.disabled = !!it._refining;
+    regenBtn.textContent = it._refining ? '生成中…' : '重新生成';
     document.getElementById('refineOverlay').classList.add('on');
     loadRefineCands(it.name, it.refinedTs, function(){
       var st = it._ov || {};
@@ -1099,34 +1112,51 @@ function toast(msg, isErr){
       if(done) done();
     });
   }
-  function afterRefineDone(r, it, prompt){
-    if(!r.ok){ sLog('refineLog', '生成失败：' + (r.error || '')); return; }
-    it.refined = true; it.status = 'ok'; it.statusText = '已细化';
-    it.refinedUrl = r.localUrl + '?t=' + r.ts; it.refinedPath = r.path; it.refinedTs = r.ts; it.lastPrompt = prompt;
+  // 弹层打开期间该资产刚生成完：刷新候选列表与双图状态（字段更新由 runRefineOne 统一处理）
+  function afterRefineDone(r, it){
     var keepCmp = it._ov && it._ov.cmp;
-    renderItems();
     loadRefineCands(it.name, r.ts, function(){
       ovSelKey = candByKey('refined.png') ? 'refined.png' : ovCandList[0].key;
       ovCmpKey = keepCmp && candByKey(keepCmp) ? keepCmp : 'orig';
       ovCmp = null;
       setLayers(); ovShowCur(); renderCandBox(); saveOvState();
     });
-    sLog('refineLog', '已生成 → ' + r.localUrl);
   }
-  function runRefine(btn, payload, it, prompt){
-    if(!prompt){ toast('请填写细化提示词', true); return; }
-    var oldTxt = btn.textContent;
-    btn.disabled = true; btn.textContent = '生成中…';
-    post('/api/refine/regen', payload, { timeoutMs: 180000 })
-      .then(function(r){ afterRefineDone(r, it, prompt); })
-      .catch(function(e){ sLog('refineLog', '生成失败：' + e); })
-      .then(function(){ btn.disabled = false; btn.textContent = oldTxt; });
+  // 单资产细化：独立请求、独立状态；不同资产可同时并发，同一资产不重复跑
+  function runRefineOne(it, prompt){
+    if(it._refining) return Promise.resolve(false);
+    it._refining = true; it.status = 'running';
+    renderItems(); renderRefineCards();
+    return post('/api/refine/regen', { name: it.name, imageData: it.imageData, prompt: prompt }, { timeoutMs: 180000 })
+      .then(function(r){
+        if(!r.ok){ it.status = 'error'; it.statusText = '细化失败'; sLog('refineLog', it.name + ' 细化失败：' + (r.error || '')); return false; }
+        it.refined = true; it.status = 'ok'; it.statusText = '已细化';
+        it.refinedUrl = r.localUrl + '?t=' + r.ts; it.refinedPath = r.path; it.refinedTs = r.ts;
+        if(prompt) it.lastPrompt = prompt;
+        sLog('refineLog', it.name + ' 已生成 → ' + r.localUrl);
+        if(refineOvCur === it) afterRefineDone(r, it);
+        return true;
+      })
+      .catch(function(e){
+        it.status = 'error'; it.statusText = '细化失败';
+        sLog('refineLog', it.name + ' 细化失败：' + e);
+        return false;
+      })
+      .then(function(ok){
+        it._refining = false;
+        renderItems(); renderRefineCards();
+        return ok;
+      });
   }
   document.getElementById('btnRefineRegen').addEventListener('click', function(){
     if(!refineOvCur) return;
     var it = refineOvCur;
+    if(it._refining) return;
     var prompt = document.getElementById('refineOvPrompt').value.trim() || document.getElementById('refinePrompt').value.trim();
-    runRefine(this, { name: it.name, imageData: it.imageData, prompt: prompt }, it, prompt);
+    if(!prompt){ toast('请填写细化提示词', true); return; }
+    var btn = this;
+    btn.disabled = true; btn.textContent = '生成中…';
+    runRefineOne(it, prompt).then(function(){ btn.disabled = false; btn.textContent = '重新生成'; });
   });
   document.getElementById('refineOvClose').addEventListener('click', closeRefineOv);
   document.getElementById('refineOverlay').addEventListener('click', function(e){
