@@ -186,8 +186,9 @@ async function handleApi(req, res, url) {
     sendJson(res, 200, {
       ok: true,
       comfly: { baseUrl: cfg.comfly?.baseUrl, imageModel: cfg.comfly?.imageModel, visionModel: cfg.comfly?.visionModel, imageSize: cfg.comfly?.imageSize, configured: !!(cfg.comfly?.apiKey) },
+      imageModels: Array.isArray(cfg.imageModels) ? cfg.imageModels : [],
       tripo: { baseUrl: cfg.tripo?.baseUrl, model: cfg.tripo?.model, ready: !!(cfg.tripo?.apiKey) && !!cfg.tripo?.ready, textureQuality: cfg.tripo?.textureQuality },
-      prompts: { splitSystem: cfg.prompts?.splitSystem, refineTemplate: cfg.prompts?.refineTemplate },
+      prompts: { splitSystem: cfg.prompts?.splitSystem, refineTemplate: cfg.prompts?.refineTemplate, assetSheetTemplate: cfg.prompts?.assetSheetTemplate },
     });
     return true;
   }
@@ -381,6 +382,42 @@ async function handleApi(req, res, url) {
     try {
       const bbox = await comflyLocateBbox(cfg, imageInput, objectName);
       sendJson(res, 200, { ok: true, bbox });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+    }
+    return true;
+  }
+
+  // AI 生成资产平铺图（可选模型；有参考图走图生图，无则文生图），产物存 Assets/AssetSheets
+  if (path === "/api/split/asset-sheet") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const cfg = loadConfig();
+    if (!cfg || !cfg.comfly?.apiKey) { sendJson(res, 500, { ok: false, error: "comfly API 未配置" }); return true; }
+    const model = String(body.model || cfg.comfly.imageModel).trim();
+    const prompt = String(body.prompt || cfg.prompts?.assetSheetTemplate || "").trim();
+    if (!model || !prompt) { sendJson(res, 400, { ok: false, error: "缺少模型或提示词" }); return true; }
+    const size = String(body.size || cfg.comfly.imageSize || "1024x1024").trim();
+    const modelConf = (Array.isArray(cfg.imageModels) ? cfg.imageModels : []).find(function (m) { return m.id === model; });
+    const apiKind = modelConf?.api === "chat" ? "chat" : "images";
+    try {
+      let outUrl;
+      if (apiKind === "chat") {
+        // chat 多模态：直接透传 dataURL，无需落盘
+        outUrl = await comflyChatImage(cfg, { model, prompt, dataUrl: body.imageData || null });
+      } else if (body.imageData) {
+        mkdirSync(TMP_DIR, { recursive: true });
+        const tmpImg = join(TMP_DIR, "sheet_src_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8) + ".png");
+        saveBase64Image(body.imageData, tmpImg);
+        outUrl = await comflyEdits(cfg, tmpImg, prompt, { model, size });
+      } else {
+        outUrl = await comflyImageGenerate(cfg, { model, prompt, size });
+      }
+      const sheetDir = resolve(workbenchRoot, "Assets", "AssetSheets");
+      let ts = Date.now();
+      let dest = join(sheetDir, "sheet_" + ts + ".png");
+      while (existsSync(dest)) { ts += 1; dest = join(sheetDir, "sheet_" + ts + ".png"); }
+      await downloadUrlToFile(outUrl, dest);
+      sendJson(res, 200, { ok: true, path: dest, localUrl: "/assets/AssetSheets/sheet_" + ts + ".png", ts, model });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
     }
@@ -769,14 +806,17 @@ async function comflyLocateBbox(cfg, imageInput, objectName) {
   return bbox;
 }
 
-async function comflyEdits(cfg, imagePath, prompt) {
+async function comflyEdits(cfg, imagePath, prompt, opts) {
+  opts = opts || {};
+  const useModel = opts.model || cfg.comfly.imageModel || "gpt-image-2";
+  const useSize = opts.size || cfg.comfly.imageSize || "1024x1024";
   // 走系统代理（proxyFetch 不支持原生 FormData，手工构造 multipart Buffer）
   const boundary = "----WBFormBoundary" + Date.now();
   const buf = readFileSync(imagePath);
   const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${cfg.comfly.imageModel || "gpt-image-2"}\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${useModel}\r\n`, "utf8"),
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${prompt}\r\n`, "utf8"),
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${cfg.comfly.imageSize || "1024x1024"}\r\n`, "utf8"),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${useSize}\r\n`, "utf8"),
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1\r\n`, "utf8"),
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.png"\r\nContent-Type: image/png\r\n\r\n`, "utf8"),
     buf,
@@ -788,10 +828,41 @@ async function comflyEdits(cfg, imagePath, prompt) {
     body,
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error("comfly 细化失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
+  if (!r.ok) throw new Error("comfly 图生图失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
   const url = j.data?.[0]?.url;
-  if (!url) throw new Error("comfly 细化未返回图片 URL");
+  if (!url) throw new Error("comfly 未返回图片 URL");
   return url;
+}
+
+async function comflyImageGenerate(cfg, opts) {
+  // 文生图：OpenAI 兼容 /images/generations，JSON 请求体
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/images/generations", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + cfg.comfly.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: opts.model, prompt: opts.prompt, size: opts.size || cfg.comfly.imageSize || "1024x1024", n: 1 }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly 文生图失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
+  const url = j.data?.[0]?.url;
+  if (!url) throw new Error("comfly 未返回图片 URL");
+  return url;
+}
+
+async function comflyChatImage(cfg, opts) {
+  // chat 多模态图像生成（Gemini 等只支持该路径的模型），图片在返回 markdown 的 ![](url) 中
+  const content = [{ type: "text", text: opts.prompt }];
+  if (opts.dataUrl) content.push({ type: "image_url", image_url: { url: opts.dataUrl } });
+  const r = await proxyFetch(cfg.comfly.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + cfg.comfly.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: opts.model, messages: [{ role: "user", content }] }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("comfly chat 生成失败 HTTP " + r.status + ": " + (j.error?.message || JSON.stringify(j).slice(0, 300)));
+  const text = j.choices?.[0]?.message?.content || "";
+  const m = String(text).match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/);
+  if (!m) throw new Error("chat 返回中未找到图片 URL");
+  return m[1];
 }
 
 async function refineItems(cfg, items, template) {

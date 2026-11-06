@@ -249,6 +249,13 @@
           <span style="color:var(--dim);font-size:12px">AI 拆分与高清重绘将使用保存后的模板</span>
         </div>
       </details>
+      <div class="toolrow" style="margin-top:4px">
+        <span style="color:var(--sub);font-size:12.5px">资产平铺图</span>
+        <select id="sheetModel" class="minp" style="width:auto;min-width:185px;padding:7px 10px"></select>
+        <button class="btn small" id="btnAssetSheet" style="width:auto;padding:9px 16px">生成资产平铺图</button>
+        <span style="color:var(--dim);font-size:12px">有参考图=图生图，无参考图=文生图；生成后载入画布可继续框选</span>
+      </div>
+      <textarea id="sheetPrompt" class="minp" rows="2" style="margin-top:6px"></textarea>
       <div style="display:flex;align-items:center;gap:10px;margin:12px 0 8px">
         <h3 style="font-size:13.5px;color:var(--sub);margin:0">拆分清单（<span id="itemCount">0</span> 项）</h3>
         <button class="mini" id="btnClearAll">清理全部</button>
@@ -527,6 +534,20 @@ function toast(msg, isErr){
     if(!c.ok) return;
     document.getElementById('splitPrompt').value = c.prompts.splitSystem || '';
     document.getElementById('refinePrompt').value = c.prompts.refineTemplate || '';
+    document.getElementById('sheetPrompt').value = c.prompts.assetSheetTemplate || '';
+    var sm = document.getElementById('sheetModel');
+    var groups = {};
+    (c.imageModels || []).forEach(function(m){ (groups[m.group] = groups[m.group] || []).push(m); });
+    Object.keys(groups).forEach(function(g){
+      var og = document.createElement('optgroup');
+      og.label = g;
+      groups[g].forEach(function(m){
+        var o = document.createElement('option');
+        o.value = m.id; o.textContent = m.label;
+        og.appendChild(o);
+      });
+      sm.appendChild(og);
+    });
     var chip = document.getElementById('tripoChip');
     if(c.tripo.ready){ chip.className = 'st ok'; chip.textContent = 'Tripo 就绪 · ' + (c.tripo.model || ''); }
     else { chip.className = 'st error'; chip.textContent = 'Tripo key 未就绪（config.json）'; }
@@ -583,6 +604,44 @@ function toast(msg, isErr){
     };
     rd.readAsDataURL(f);
   }
+  function loadImageFromUrl(url){
+    var img = new Image();
+    img.onload = function(){
+      baseImg = img; sel = null; fitCanvas(); drawCanvas();
+      canvas.style.display = 'block';
+      var t = document.getElementById('splitZoneTip');
+      t.textContent = '点击或拖拽可更换参考图（支持 JPG / PNG / WebP）';
+      t.className = 'uztip has';
+    };
+    img.onerror = function(){ toast('图片载入失败', true); };
+    img.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+  }
+  document.getElementById('btnAssetSheet').addEventListener('click', function(){
+    var b = this;
+    var model = document.getElementById('sheetModel').value;
+    var prompt = document.getElementById('sheetPrompt').value.trim();
+    if(!model){ toast('请选择生成模型', true); return; }
+    if(!prompt){ toast('请填写平铺图要求', true); return; }
+    var payload = { model: model, prompt: prompt };
+    if(baseImg){
+      try {
+        var c = document.createElement('canvas');
+        c.width = baseImg.naturalWidth || baseImg.width;
+        c.height = baseImg.naturalHeight || baseImg.height;
+        c.getContext('2d').drawImage(baseImg, 0, 0);
+        payload.imageData = c.toDataURL('image/png');
+      } catch(e){ toast('参考图读取失败：' + e.message, true); return; }
+    }
+    b.disabled = true; b.textContent = '生成中…';
+    post('/api/split/asset-sheet', payload, { timeoutMs: 300000 })
+      .then(function(r){
+        if(!r.ok) throw new Error(r.error || '生成失败');
+        toast('资产平铺图已生成，已载入画布');
+        loadImageFromUrl(r.localUrl);
+      })
+      .catch(function(e){ toast('平铺图生成失败：' + e.message, true); })
+      .finally(function(){ b.disabled = false; b.textContent = '生成资产平铺图'; });
+  });
   var tipEl = document.getElementById('splitZoneTip');
   tipEl.addEventListener('click', function(){ fileInput.click(); });
   canvas.addEventListener('click', function(){
